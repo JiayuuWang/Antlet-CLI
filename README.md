@@ -13,6 +13,14 @@
 
 ---
 
+## 参考资料
+- https://github.com/RightNow-AI/openfang
+- https://opencode.ai/docs/zh-cn
+- https://code.claude.com/docs/zh-CN/overview
+- https://github.com/openclaw/openclaw
+- https://github.com/zeroclaw-labs/zeroclaw
+- https://jiayuuwang.github.io/%E8%84%9A%E6%89%8B%E6%9E%B6/%E4%BB%A3%E7%A0%81%E7%94%9F%E6%88%90%E6%99%BA%E8%83%BD%E4%BD%93/the-generalization-of-agent-scaffolding-cn/
+
 ## 项目结构（大模型生成，仅供参考）
 
 ```
