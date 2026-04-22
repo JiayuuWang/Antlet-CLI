@@ -1,9 +1,7 @@
 mod apply_patch;
 mod bash;
 mod read_file;
-mod repo_search;
 mod web_search;
-mod write_file;
 
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
@@ -14,9 +12,7 @@ use serde_json::{Value, json};
 pub use apply_patch::ApplyPatchTool;
 pub use bash::BashTool;
 pub use read_file::ReadFileTool;
-pub use repo_search::RepoSearchTool;
 pub use web_search::WebSearchTool;
-pub use write_file::WriteFileTool;
 
 #[derive(Debug, Clone)]
 pub struct ToolResult {
@@ -84,10 +80,8 @@ impl ToolRegistry {
             tools: HashMap::new(),
         };
         registry.register(ReadFileTool::new(workspace.clone()));
-        registry.register(WriteFileTool::new(workspace.clone()));
         registry.register(ApplyPatchTool::new(workspace.clone()));
-        registry.register(RepoSearchTool::new(workspace.clone()));
-        registry.register(BashTool::new(workspace.clone()));
+        registry.register(BashTool::new(workspace));
         registry.register(WebSearchTool::new());
         registry
     }
@@ -98,6 +92,12 @@ impl ToolRegistry {
 
     pub fn schemas(&self) -> Vec<Value> {
         self.tools.values().map(|t| t.to_openai_schema()).collect()
+    }
+
+    pub fn names(&self) -> Vec<String> {
+        let mut names: Vec<String> = self.tools.keys().cloned().collect();
+        names.sort();
+        names
     }
 
     pub async fn execute(&self, name: &str, args: Value) -> Result<ToolResult> {

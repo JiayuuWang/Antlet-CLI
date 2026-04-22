@@ -1,6 +1,8 @@
 use anyhow::Result;
 
-use crate::{llm::LlmClient, schema::Message, session_store::SessionStore, tools::ToolRegistry};
+use crate::{
+    llm::LlmClient, schema::Message, session_store::SessionStore, tools::ToolRegistry, ui::Color,
+};
 
 pub struct Agent {
     llm: LlmClient,
@@ -19,11 +21,17 @@ impl Agent {
         max_steps: usize,
     ) -> Result<Self> {
         let mut messages = session.load().await?;
-        if messages.is_empty() || messages[0].role != "system" {
-            let system = Message::system(system_prompt);
-            session.rewrite(std::slice::from_ref(&system)).await?;
-            messages = vec![system];
+        let system = Message::system(system_prompt);
+
+        if messages.is_empty() {
+            messages = vec![system.clone()];
+        } else if messages[0].role == "system" {
+            messages[0] = system.clone();
+        } else {
+            messages.insert(0, system.clone());
         }
+
+        session.rewrite(&messages).await?;
 
         Ok(Self {
             llm,
@@ -54,7 +62,13 @@ impl Agent {
         self.session.append(&user).await?;
 
         for step in 0..self.max_steps {
-            println!("[step {}/{}] thinking", step + 1, self.max_steps);
+            println!(
+                "{}[step {}/{}] thinking{}",
+                Color::CYAN,
+                step + 1,
+                self.max_steps,
+                Color::RESET
+            );
 
             let reply = self
                 .llm
@@ -66,22 +80,56 @@ impl Agent {
             self.messages.push(assistant.clone());
             self.session.append(&assistant).await?;
 
+            if !reply.content.is_empty() {
+                println!(
+                    "{}assistant>{} {}",
+                    Color::BLUE,
+                    Color::RESET,
+                    summarize(&reply.content)
+                );
+            }
+
             if reply.tool_calls.is_empty() {
                 return Ok(reply.content);
             }
 
             for call in reply.tool_calls {
                 let tool_name = call.function.name.clone();
-                println!("tool> {}", tool_name);
-                let result = self
-                    .tools
-                    .execute(&tool_name, call.function.arguments)
-                    .await?;
+                let args = call.function.arguments.clone();
+                let args_str =
+                    serde_json::to_string_pretty(&args).unwrap_or_else(|_| "{}".to_string());
+
+                println!(
+                    "{}tool>{} {}{}{}",
+                    Color::MAGENTA,
+                    Color::RESET,
+                    Color::BOLD,
+                    tool_name,
+                    Color::RESET
+                );
+                println!("{}tool.args>{}\n{}", Color::DIM, Color::RESET, args_str);
+
+                let result = self.tools.execute(&tool_name, args).await?;
                 let text = result.as_text();
                 let tool_msg = Message::tool(call.id, tool_name, text.clone());
                 self.messages.push(tool_msg.clone());
                 self.session.append(&tool_msg).await?;
-                println!("tool_result> {}", summarize(&text));
+
+                if result.success {
+                    println!(
+                        "{}tool.ok>{} {}",
+                        Color::GREEN,
+                        Color::RESET,
+                        summarize(&text)
+                    );
+                } else {
+                    println!(
+                        "{}tool.err>{} {}",
+                        Color::RED,
+                        Color::RESET,
+                        summarize(&text)
+                    );
+                }
             }
         }
 

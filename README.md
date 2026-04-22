@@ -296,9 +296,12 @@ async fn main() -> anyhow::Result<()> {
 
 - OpenAI 兼容协议 LLM 调用（默认 `https://api.minimaxi.com/v1`）
 - Agent 执行循环（LLM -> 工具调用 -> 工具结果 -> LLM）
-- 工具：`read_file` / `write_file` / `apply_patch` / `repo_search` / `bash` / `web_search(Tavily)`
-- JSONL 会话持久化（`.antlet/sessions/<session>.jsonl`）
+- 工具：`read_file` / `apply_patch` / `bash` / `web_search(Tavily)`
+- JSONL 会话持久化（默认 `~/.antlet/sessions/<session>.jsonl`）
 - CLI：交互模式与 `--task` 单次任务模式
+
+详细配置与使用请查看：
+- `docs/USAGE.md`
 
 ### 环境变量
 
@@ -306,6 +309,8 @@ async fn main() -> anyhow::Result<()> {
 export ANTLET_API_KEY="your_key"
 export ANTLET_API_BASE="https://api.minimaxi.com/v1"   # 可选
 export ANTLET_MODEL="MiniMax-M2.5"                      # 可选
+export ANTLET_PROFILE_DIR="$HOME/.antlet/profile"       # 可选
+export ANTLET_PROFILE_RESET="0"                         # 可选，1/true 时重置 profile 模板
 export TAVILY_API_KEY="your_tavily_key"                 # 使用 web_search 时需要
 ```
 

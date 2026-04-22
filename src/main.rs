@@ -2,10 +2,11 @@ mod agent;
 mod cli;
 mod config;
 mod llm;
+mod profile;
 mod schema;
 mod session_store;
 mod tools;
-mod leetcode_hot10;
+mod ui;
 
 use anyhow::Result;
 use clap::Parser;
@@ -14,8 +15,10 @@ use agent::Agent;
 use cli::CliArgs;
 use config::AppConfig;
 use llm::LlmClient;
+use profile::{build_system_prompt, ensure_and_load_profile, profile_file_names};
 use session_store::SessionStore;
 use tools::ToolRegistry;
+use ui::{Color, print_banner};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -29,25 +32,38 @@ async fn main() -> Result<()> {
     )?;
 
     let workspace = std::fs::canonicalize(&config.workspace).unwrap_or(config.workspace.clone());
-    let system_prompt = format!(
-        "You are Antlet mini coding agent. Work in workspace: {}. Use tools when needed. Keep responses concise.",
-        workspace.display()
-    );
+    let base_prompt =
+        "You are Antlet mini coding agent. Use tools when needed. Keep responses concise.";
 
-    let llm = LlmClient::new(config.api_key, config.api_base, config.model);
+    let profile_docs = ensure_and_load_profile(&config.profile_dir)?;
+    let profile_files = profile_file_names(&profile_docs);
+    let system_prompt = build_system_prompt(base_prompt, &workspace, &profile_docs);
+
+    let llm = LlmClient::new(
+        config.api_key.clone(),
+        config.api_base.clone(),
+        config.model.clone(),
+    );
     let tools = ToolRegistry::default_for(workspace.clone());
-    let session = SessionStore::new(&config.session);
+    let tool_names = tools.names();
+    let session = SessionStore::new(&config.data_dir, &config.session);
     let mut agent = Agent::new(llm, tools, session, system_prompt, config.max_steps).await?;
 
+    print_banner(&config, &workspace, &tool_names, &profile_files);
+
     if let Some(task) = args.task {
+        println!("{}mode{}: one-shot", Color::DIM, Color::RESET);
         let result = agent.run_task(&task).await?;
-        println!("\n{}", result);
+        println!("\n{}{}{}", Color::BLUE, result, Color::RESET);
         return Ok(());
     }
 
-    println!("antlet-agent interactive mode");
-    println!("workspace: {}", workspace.display());
-    println!("commands: /exit /clear /history");
+    println!("{}mode{}: interactive", Color::DIM, Color::RESET);
+    println!(
+        "{}commands{}: /exit /clear /history",
+        Color::DIM,
+        Color::RESET
+    );
 
     let stdin = tokio::io::stdin();
     let mut reader = tokio::io::BufReader::new(stdin);
@@ -57,7 +73,9 @@ async fn main() -> Result<()> {
         use tokio::io::AsyncWriteExt;
 
         let mut stdout = tokio::io::stdout();
-        stdout.write_all(b"\n> ").await?;
+        stdout
+            .write_all(format!("\n{}>{} ", Color::WHITE, Color::RESET).as_bytes())
+            .await?;
         stdout.flush().await?;
 
         let mut line = String::new();
@@ -74,18 +92,24 @@ async fn main() -> Result<()> {
             break;
         }
         if input == "/history" {
-            println!("messages: {}", agent.history_len());
+            println!(
+                "{}messages{}: {}",
+                Color::DIM,
+                Color::RESET,
+                agent.history_len()
+            );
             continue;
         }
         if input == "/clear" {
             agent.clear_history_keep_system();
             agent.persist_all().await?;
-            println!("history cleared");
+            println!("{}history cleared{}", Color::YELLOW, Color::RESET);
             continue;
         }
 
+        println!("{}user>{} {}", Color::CYAN, Color::RESET, input);
         let result = agent.run_task(input).await?;
-        println!("\nassistant> {}", result);
+        println!("\n{}assistant>{} {}", Color::BLUE, Color::RESET, result);
     }
 
     Ok(())

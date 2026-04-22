@@ -11,9 +11,10 @@ pub struct SessionStore {
 }
 
 impl SessionStore {
-    pub fn new(session_name: &str) -> Self {
-        let mut path = PathBuf::from(".antlet/sessions");
-        path.push(format!("{}.jsonl", session_name));
+    pub fn new(data_dir: &Path, session_name: &str) -> Self {
+        let path = data_dir
+            .join("sessions")
+            .join(format!("{}.jsonl", session_name));
         Self { path }
     }
 
@@ -77,8 +78,7 @@ mod tests {
     #[tokio::test]
     async fn append_and_load() {
         let dir = tempdir().unwrap();
-        std::env::set_current_dir(dir.path()).unwrap();
-        let store = SessionStore::new("test");
+        let store = SessionStore::new(dir.path(), "test");
         store.append(&Message::user("hello")).await.unwrap();
         let loaded = store.load().await.unwrap();
         assert_eq!(loaded.len(), 1);

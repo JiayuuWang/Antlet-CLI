@@ -10,6 +10,8 @@ pub struct AppConfig {
     pub workspace: PathBuf,
     pub max_steps: usize,
     pub session: String,
+    pub data_dir: PathBuf,
+    pub profile_dir: PathBuf,
 }
 
 impl AppConfig {
@@ -29,6 +31,21 @@ impl AppConfig {
             .or_else(|| std::env::var("ANTLET_MODEL").ok())
             .unwrap_or_else(|| "MiniMax-M2.5".to_string());
 
+        let data_dir = std::env::var("ANTLET_HOME")
+            .ok()
+            .map(PathBuf::from)
+            .or_else(|| {
+                std::env::var("HOME")
+                    .ok()
+                    .map(|home| PathBuf::from(home).join(".antlet"))
+            })
+            .unwrap_or_else(|| PathBuf::from(".antlet"));
+
+        let profile_dir = std::env::var("ANTLET_PROFILE_DIR")
+            .ok()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| data_dir.join("profile"));
+
         Ok(Self {
             api_key,
             api_base,
@@ -36,6 +53,8 @@ impl AppConfig {
             workspace,
             max_steps,
             session,
+            data_dir,
+            profile_dir,
         })
     }
 }
