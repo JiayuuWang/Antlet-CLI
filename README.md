@@ -13,7 +13,6 @@
 
 ---
 
-## 参考资料
 - https://github.com/RightNow-AI/openfang
 - https://opencode.ai/docs/zh-cn
 - https://code.claude.com/docs/zh-CN/overview
@@ -289,3 +288,39 @@ async fn main() -> anyhow::Result<()> {
 
 *Happy Coding! 🐜*
 ```
+---
+
+## 当前可运行版本（Rust Mini Coding Agent）
+
+### 能力
+
+- OpenAI 兼容协议 LLM 调用（默认 `https://api.minimaxi.com/v1`）
+- Agent 执行循环（LLM -> 工具调用 -> 工具结果 -> LLM）
+- 工具：`read_file` / `write_file` / `apply_patch` / `repo_search` / `bash` / `web_search(Tavily)`
+- JSONL 会话持久化（`.antlet/sessions/<session>.jsonl`）
+- CLI：交互模式与 `--task` 单次任务模式
+
+### 环境变量
+
+```bash
+export ANTLET_API_KEY="your_key"
+export ANTLET_API_BASE="https://api.minimaxi.com/v1"   # 可选
+export ANTLET_MODEL="MiniMax-M2.5"                      # 可选
+export TAVILY_API_KEY="your_tavily_key"                 # 使用 web_search 时需要
+```
+
+### 运行
+
+```bash
+# 交互模式
+cargo run -- --workspace . --session demo
+
+# 单次任务模式
+cargo run -- --workspace . --task "Read README.md and summarize architecture"
+```
+
+### 交互命令
+
+- `/history` 查看消息条数
+- `/clear` 清空历史（保留 system prompt）
+- `/exit` 退出
