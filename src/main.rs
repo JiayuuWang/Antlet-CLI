@@ -10,6 +10,7 @@ mod session_store;
 mod tools;
 mod ui;
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -26,9 +27,66 @@ use session_store::SessionStore;
 use tools::ToolRegistry;
 use ui::{Color, print_banner};
 
+fn data_dir_from_env() -> PathBuf {
+    std::env::var("ANTLET_HOME")
+        .ok()
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::var("HOME")
+                .ok()
+                .map(|home| PathBuf::from(home).join(".antlet"))
+        })
+        .unwrap_or_else(|| PathBuf::from(".antlet"))
+}
+
+fn profile_dir_from_env(data_dir: &PathBuf) -> PathBuf {
+    std::env::var("ANTLET_PROFILE_DIR")
+        .ok()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| data_dir.join("profile"))
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = CliArgs::parse();
+
+    // Handle --schedule: add a scheduled task and exit (no agent needed)
+    if let Some(schedule) = args.schedule.clone() {
+        let data_dir = data_dir_from_env();
+        let profile_dir = profile_dir_from_env(&data_dir);
+        let workspace = std::fs::canonicalize(&args.workspace).unwrap_or(args.workspace.clone());
+        let scheduler = Scheduler::new(data_dir);
+        let name = args.schedule_name.as_deref().unwrap_or("scheduled task");
+        let task_text = args.task.clone().unwrap_or_default();
+
+        // Ensure profile dir exists (needed for ensure_and_load_profile)
+        std::fs::create_dir_all(&profile_dir).ok();
+
+        let task = scheduler.add_from_cli(
+            &schedule,
+            name,
+            &task_text,
+            &args.session,
+            workspace.to_str().unwrap_or("."),
+        )?;
+
+        println!(
+            "{}scheduler{}: task '{}' scheduled (id={})",
+            Color::GREEN,
+            Color::RESET,
+            task.name,
+            task.id
+        );
+        if let Some(next) = task.next_run {
+            let dt = chrono::DateTime::from_timestamp(next, 0)
+                .map(|d| d.format("%Y-%m-%d %H:%M").to_string())
+                .unwrap_or_else(|| next.to_string());
+            println!("{}scheduler{}: next run at {}", Color::DIM, Color::RESET, dt);
+        }
+        return Ok(());
+    }
+
+    // Agent modes (interactive/one-shot) require config
     let config = AppConfig::from_parts(
         args.workspace.clone(),
         args.max_steps,
@@ -54,36 +112,6 @@ async fn main() -> Result<()> {
     let tool_names = tools.names();
     let session = SessionStore::new(&config.data_dir, &config.session);
     let mut agent = Agent::new(llm, tools, session, system_prompt, config.max_steps).await?;
-
-    // Handle --schedule: add a scheduled task and exit
-    if let Some(schedule) = args.schedule {
-        let scheduler = Scheduler::new(config.data_dir.clone());
-        let name = args.schedule_name.as_deref().unwrap_or("scheduled task");
-        let task_text = args.task.clone().unwrap_or_default();
-
-        let task = scheduler.add_from_cli(
-            &schedule,
-            name,
-            &task_text,
-            &args.session,
-            workspace.to_str().unwrap_or("."),
-        )?;
-
-        println!(
-            "{}scheduler{}: task '{}' scheduled (id={})",
-            Color::GREEN,
-            Color::RESET,
-            task.name,
-            task.id
-        );
-        if let Some(next) = task.next_run {
-            let dt = chrono::DateTime::from_timestamp(next, 0)
-                .map(|d| d.format("%Y-%m-%d %H:%M").to_string())
-                .unwrap_or_else(|| next.to_string());
-            println!("{}scheduler{}: next run at {}", Color::DIM, Color::RESET, dt);
-        }
-        return Ok(());
-    }
 
     print_banner(&config, &workspace, &tool_names, &profile_files);
 

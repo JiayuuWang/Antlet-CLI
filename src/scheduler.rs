@@ -24,22 +24,26 @@ impl Scheduler {
         self.store.load()
     }
 
-    pub fn save_tasks(&self, tasks: &[ScheduledTask]) -> Result<()> {
-        self.store.save(tasks)
-    }
-
+    #[allow(dead_code)]
     pub fn add_task(&self, task: ScheduledTask) -> Result<()> {
         let mut tasks = self.store.load().unwrap_or_default();
         tasks.push(task);
         self.store.save(&tasks)
     }
 
+    #[allow(dead_code)]
+    pub fn save_tasks(&self, tasks: &[ScheduledTask]) -> Result<()> {
+        self.store.save(tasks)
+    }
+
+    #[allow(dead_code)]
     pub fn remove_task(&self, id: &str) -> Result<()> {
         let mut tasks = self.store.load().unwrap_or_default();
         tasks.retain(|t| t.id != id);
         self.store.save(&tasks)
     }
 
+    #[allow(dead_code)]
     pub fn list_tasks(&self) -> Result<Vec<ScheduledTask>> {
         self.store.load()
     }
@@ -205,18 +209,58 @@ fn cron_next_or_now(cron_expr: &str, from_ts: i64) -> Option<i64> {
     let now = chrono::DateTime::from_timestamp(from_ts, 0)?;
     let local = now.with_timezone(&chrono::Local);
 
-    let min = parse_cron_field(parts[0], 0, 59)? as u32;
-    let hour = parse_cron_field(parts[1], 0, 23)? as u32;
+    let minute_field = parts[0];
+    let hour_field = parts[1];
+
+    // For */n patterns, parse step; for * or exact value, store as Option
+    let minute_step = if minute_field.starts_with("*/") {
+        minute_field[2..].parse::<u32>().ok().filter(|&s| s > 0 && s <= 59)
+    } else {
+        None
+    };
+    let minute_target = if minute_step.is_none() {
+        parse_cron_field(minute_field, 0, 59)? as u32
+    } else {
+        0 // not used when step is set
+    };
+
+    let hour_step = if hour_field.starts_with("*/") {
+        hour_field[2..].parse::<u32>().ok().filter(|&s| s > 0 && s <= 23)
+    } else {
+        None
+    };
+    let hour_target = if hour_step.is_none() {
+        parse_cron_field(hour_field, 0, 23)? as u32
+    } else {
+        0 // not used when step is set
+    };
 
     // Try next occurrences within next 1440 minutes (1 day)
-    for offset in 0..=1440 {
+    for offset in 1..=1440 {
         let candidate = local + chrono::Duration::minutes(offset);
-        if candidate.minute() == min && candidate.hour() == hour {
+
+        // Check hour match
+        let hour_match = if let Some(step) = hour_step {
+            candidate.hour() % step == 0
+        } else {
+            candidate.hour() == hour_target
+        };
+
+        // Check minute match
+        let min_match = if let Some(step) = minute_step {
+            candidate.minute() % step == 0
+        } else {
+            candidate.minute() == minute_target
+        };
+
+        if hour_match && min_match {
             let ts = candidate
                 .with_second(0)
                 .and_then(|d| d.with_nanosecond(0))?
                 .timestamp();
-            return Some(ts);
+            if ts > from_ts {
+                return Some(ts);
+            }
         }
     }
 
@@ -226,6 +270,14 @@ fn cron_next_or_now(cron_expr: &str, from_ts: i64) -> Option<i64> {
 fn parse_cron_field(field: &str, min: u64, max: u64) -> Option<u64> {
     if field == "*" {
         return Some(min);
+    }
+    // Handle */n patterns like */10
+    if let Some((_, step_str)) = field.split_once('/') {
+        if let Ok(_step) = step_str.parse::<u64>() {
+            // For */n, return the min value (actual matching done by iteration)
+            return Some(min);
+        }
+        return None;
     }
     field.parse::<u64>().ok().filter(|v| *v >= min && *v <= max)
 }

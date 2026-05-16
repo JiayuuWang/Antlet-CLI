@@ -44,13 +44,15 @@ cargo test
 - `bash` - command execution
 - `search` - Tavily web search (requires `TAVILY_API_KEY`)
 
+**Scheduler**: `src/scheduler.rs` + `src/schedule_store.rs` - background task scheduler. Supports cron expressions and one-shot timestamps. Tasks stored in `{data_dir}/scheduled_tasks.json`. In interactive mode, scheduler runs as background async task calling `agent.run_task()` when tasks fire.
+
 **Session persistence**: `src/session_store.rs` - sessions stored as JSONL in `~/.antlet/sessions/<session>.jsonl`. Messages appended on each turn.
 
-**System prompt**: `src/profile.rs` - builds system prompt from markdown files in `~/.antlet/profile/` (`persona.md`, `self_knowledge.md`, `principles.md`, `workflow.md`). Template created on first run if missing.
+**System prompt**: `src/profile.rs` - builds system prompt from markdown files in `~/.antlet/profile/` (`persona.md`, `capabilities.md`, `self_knowledge.md`, `behavior.md`). Template created on first run if missing.
 
 **Configuration**: `src/config.rs` - `AppConfig` loads from env vars (`ANTLET_API_KEY`, `ANTLET_API_BASE`, `ANTLET_MODEL`, `ANTLET_HOME`, `ANTLET_PROFILE_DIR`, etc.) and CLI args.
 
-**CLI entry**: `src/cli.rs` defines `CliArgs` with `--workspace`, `--session`, `--task`, `--max-steps`, `--api-base`, `--model`.
+**CLI entry**: `src/cli.rs` defines `CliArgs` with `--workspace`, `--session`, `--task`, `--max-steps`, `--api-base`, `--model`, `--schedule`, `--schedule-name`.
 
 ## Environment Variables
 
