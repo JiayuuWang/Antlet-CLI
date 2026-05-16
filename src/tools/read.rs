@@ -1,24 +1,24 @@
-use std::{path::PathBuf, str::FromStr};
+use std::path::PathBuf;
 
 use async_trait::async_trait;
 use serde_json::{Value, json};
 
 use super::{Tool, ToolResult, resolve_path};
 
-pub struct ReadFileTool {
+pub struct ReadTool {
     workspace: PathBuf,
 }
 
-impl ReadFileTool {
+impl ReadTool {
     pub fn new(workspace: PathBuf) -> Self {
         Self { workspace }
     }
 }
 
 #[async_trait]
-impl Tool for ReadFileTool {
+impl Tool for ReadTool {
     fn name(&self) -> &'static str {
-        "read_file"
+        "read"
     }
 
     fn description(&self) -> &'static str {
@@ -65,7 +65,6 @@ impl Tool for ReadFileTool {
             return ToolResult::ok("(no content)");
         }
 
-        let out = String::from_str(&lines.join("\n")).unwrap_or_default();
-        ToolResult::ok(out)
+        ToolResult::ok(lines.join("\n"))
     }
 }

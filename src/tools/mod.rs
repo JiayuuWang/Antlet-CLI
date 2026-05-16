@@ -1,7 +1,10 @@
-mod apply_patch;
 mod bash;
-mod read_file;
-mod web_search;
+mod glob;
+mod grep;
+mod ls;
+mod read;
+mod search;
+mod write;
 
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
@@ -9,10 +12,13 @@ use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use serde_json::{Value, json};
 
-pub use apply_patch::ApplyPatchTool;
 pub use bash::BashTool;
-pub use read_file::ReadFileTool;
-pub use web_search::WebSearchTool;
+pub use glob::GlobTool;
+pub use grep::GrepTool;
+pub use ls::LsTool;
+pub use read::ReadTool;
+pub use search::SearchTool;
+pub use write::WriteTool;
 
 #[derive(Debug, Clone)]
 pub struct ToolResult {
@@ -79,10 +85,13 @@ impl ToolRegistry {
         let mut registry = Self {
             tools: HashMap::new(),
         };
-        registry.register(ReadFileTool::new(workspace.clone()));
-        registry.register(ApplyPatchTool::new(workspace.clone()));
-        registry.register(BashTool::new(workspace));
-        registry.register(WebSearchTool::new());
+        registry.register(ReadTool::new(workspace.clone()));
+        registry.register(WriteTool::new(workspace.clone()));
+        registry.register(GrepTool::new(workspace.clone()));
+        registry.register(GlobTool::new(workspace.clone()));
+        registry.register(LsTool::new(workspace.clone()));
+        registry.register(BashTool::new(workspace.clone()));
+        registry.register(SearchTool::new());
         registry
     }
 

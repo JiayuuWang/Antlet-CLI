@@ -4,9 +4,9 @@ use serde_json::{Value, json};
 
 use super::{Tool, ToolResult};
 
-pub struct WebSearchTool;
+pub struct SearchTool;
 
-impl WebSearchTool {
+impl SearchTool {
     pub fn new() -> Self {
         Self
     }
@@ -36,13 +36,13 @@ struct TavilyItem {
 }
 
 #[async_trait]
-impl Tool for WebSearchTool {
+impl Tool for SearchTool {
     fn name(&self) -> &'static str {
-        "web_search"
+        "search"
     }
 
     fn description(&self) -> &'static str {
-        "Search web via Tavily API."
+        "Web search via Tavily API."
     }
 
     fn parameters(&self) -> Value {
