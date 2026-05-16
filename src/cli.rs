@@ -23,4 +23,10 @@ pub struct CliArgs {
 
     #[arg(long)]
     pub model: Option<String>,
+
+    #[arg(long)]
+    pub schedule: Option<String>,
+
+    #[arg(long)]
+    pub schedule_name: Option<String>,
 }
