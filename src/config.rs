@@ -74,12 +74,13 @@ impl AppConfig {
         data_dir: &Path,
     ) -> Result<Self> {
         let api_key = std::env::var("ANTLET_API_KEY")
-            .or_else(|_| {
+            .ok()
+            .or_else(|| {
                 load_config(data_dir)
                     .ok()
                     .and_then(|c| c.api_key)
-                    .ok_or_else(|| anyhow::anyhow!("missing ANTLET_API_KEY. Set it via environment or in ~/.antlet/config.toml"))
-            })?;
+            })
+            .context("missing ANTLET_API_KEY. Set it via environment or in ~/.antlet/config.toml")?;
 
         let api_base = api_base_arg
             .or_else(|| std::env::var("ANTLET_API_BASE").ok())
