@@ -94,7 +94,7 @@ impl Agent {
 
             println!(
                 "{}[step {}/{}] thinking{}",
-                Color::CYAN,
+                Color::DIM,
                 step + 1,
                 self.max_steps,
                 Color::RESET
@@ -109,6 +109,13 @@ impl Agent {
             self.messages.push(assistant.clone());
             self.session.append(&assistant).await?;
 
+            if reply.tool_calls.is_empty() {
+                if self.step_count % MEMORY_SUMMARY_INTERVAL == 0 {
+                    self.summarize_and_update_behavior().await?;
+                }
+                return Ok(reply.content);
+            }
+
             if !reply.content.is_empty() {
                 println!(
                     "{}assistant>{} {}",
@@ -116,13 +123,6 @@ impl Agent {
                     Color::RESET,
                     summarize(&reply.content)
                 );
-            }
-
-            if reply.tool_calls.is_empty() {
-                if self.step_count % MEMORY_SUMMARY_INTERVAL == 0 {
-                    self.summarize_and_update_behavior().await?;
-                }
-                return Ok(reply.content);
             }
 
             let tool_futures: Vec<_> = reply.tool_calls.iter().map(|call| {

@@ -15,6 +15,7 @@ impl Color {
     pub const MAGENTA: &'static str = "\x1b[35m";
     pub const RED: &'static str = "\x1b[31m";
     pub const WHITE: &'static str = "\x1b[97m";
+    pub const THINK: &'static str = "\x1b[90m";
 }
 
 pub fn print_banner(
