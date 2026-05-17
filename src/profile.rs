@@ -1,48 +1,150 @@
-use std::{fs, path::Path};
+use std::path::{Path, PathBuf};
+use std::fs;
 
 use anyhow::Result;
 
-pub struct ProfileDoc {
-    pub name: &'static str,
-    pub content: String,
+pub struct Profile {
+    pub persona: String,
+    pub identities: String,
+    pub self_knowledge: String,
+    pub behavior: String,
 }
 
-const PROFILE_FILES: [(&str, &str); 4] = [
-    (
-        "persona.md",
-        r#"# Persona
+pub fn profile_dir(data_dir: &Path) -> PathBuf {
+    data_dir.join("profile")
+}
+
+pub struct ProfileFiles {
+    pub persona: PathBuf,
+    pub identities: PathBuf,
+    pub self_knowledge: PathBuf,
+    pub behavior: PathBuf,
+}
+
+impl ProfileFiles {
+    pub fn new(profile_dir: &Path) -> Self {
+        Self {
+            persona: profile_dir.join("persona.md"),
+            identities: profile_dir.join("identities.md"),
+            self_knowledge: profile_dir.join("self_knowledge.md"),
+            behavior: profile_dir.join("behavior.md"),
+        }
+    }
+
+    pub fn names(&self) -> Vec<String> {
+        vec![
+            "persona.md".to_string(),
+            "identities.md".to_string(),
+            "self_knowledge.md".to_string(),
+            "behavior.md".to_string(),
+        ]
+    }
+}
+
+pub fn init_profile(profile_dir: &Path, reset: bool) -> Result<Profile> {
+    fs::create_dir_all(profile_dir)?;
+
+    let files = ProfileFiles::new(profile_dir);
+
+    if reset {
+        fs::write(&files.persona, DEFAULT_PERSONA)?;
+        fs::write(&files.identities, DEFAULT_IDENTITIES)?;
+        fs::write(&files.self_knowledge, DEFAULT_SELF_KNOWLEDGE)?;
+        fs::write(&files.behavior, DEFAULT_BEHAVIOR)?;
+    } else {
+        if !files.persona.exists() {
+            fs::write(&files.persona, DEFAULT_PERSONA)?;
+        }
+        if !files.identities.exists() {
+            fs::write(&files.identities, DEFAULT_IDENTITIES)?;
+        }
+        if !files.self_knowledge.exists() {
+            fs::write(&files.self_knowledge, DEFAULT_SELF_KNOWLEDGE)?;
+        }
+        if !files.behavior.exists() {
+            fs::write(&files.behavior, DEFAULT_BEHAVIOR)?;
+        }
+    }
+
+    load_profile(profile_dir)
+}
+
+pub fn load_profile(profile_dir: &Path) -> Result<Profile> {
+    let files = ProfileFiles::new(profile_dir);
+    Ok(Profile {
+        persona: read_file(&files.persona)?,
+        identities: read_file(&files.identities)?,
+        self_knowledge: read_file(&files.self_knowledge)?,
+        behavior: read_file(&files.behavior)?,
+    })
+}
+
+fn read_file(path: &Path) -> Result<String> {
+    if path.exists() {
+        Ok(fs::read_to_string(path)?)
+    } else {
+        Ok(String::new())
+    }
+}
+
+pub fn build_system_prompt(
+    base: &str,
+    workspace: &Path,
+    profile: &Profile,
+) -> String {
+    let mut out = String::new();
+    out.push_str(base);
+    out.push_str("\n\n## Workspace\n");
+    out.push_str(&format!("Current workspace: `{}`\n", workspace.display()));
+    out.push_str("\n## Profile Files\n");
+
+    out.push_str("\n### persona.md (read-only)\n");
+    out.push_str(profile.persona.trim());
+    out.push('\n');
+
+    out.push_str("\n### identities.md (read/write)\n");
+    out.push_str(profile.identities.trim());
+    out.push('\n');
+
+    out.push_str("\n### self_knowledge.md (read/write)\n");
+    out.push_str(profile.self_knowledge.trim());
+    out.push('\n');
+
+    out.push_str("\n### behavior.md (read/write)\n");
+    out.push_str(profile.behavior.trim());
+    out.push('\n');
+
+    out
+}
+
+const DEFAULT_PERSONA: &str = r#"# Persona
 
 You are Antlet, an engineering-focused coding agent built for execution.
 
 You are deeply pragmatic and effective. You take engineering quality seriously. You communicate efficiently, keeping the user clearly informed about what you are doing without unnecessary detail. You build context by examining the codebase first — never make assumptions or jump to conclusions. You think through the nuances of code you encounter and embody the mentality of a skilled senior software engineer.
 
-Your core value is **execution**, not teaching. When given a task, your default expectation is to execute, not to explain or write tutorials."#,
-    ),
-    (
-        "capabilities.md",
-        r#"# Capabilities
+Your core value is **execution**, not teaching. When given a task, your default expectation is to execute, not to explain or write tutorials."#;
 
-## Tools You Have Access To
+const DEFAULT_IDENTITIES: &str = r#"# identities.md
 
-- **read** — Read a UTF-8 text file with line numbers. Args: `path` (required), `offset`, `limit`.
-- **write** — Write or edit a file. Use `old`/`new` for text replacement, or `content` to overwrite entire file. Creates parent directories if needed. Args: `path` (required), `content`, `old`, `new`, `replace_all`.
-- **grep** — Search for regex pattern in files. Returns matching lines with line numbers. Args: `pattern` (required), `path`, `recursive`, `ignore_case`.
-- **glob** — Find files by name pattern (supports `**` for recursive). Args: `pattern` (required), `path`.
-- **ls** — List directory contents with file sizes and modification times. Args: `path`.
-- **bash** — Execute shell commands. Returns stdout, stderr, and exit code. Args: `command` (required), `timeout_sec`.
-- **search** — Web search via Tavily API. Returns titled results with URLs and snippets. Args: `query` (required), `max_results`.
+Store credentials, API keys, passwords, and account information here.
 
-## How to Use Tools
+## Example Structure
 
-- Prefer dedicated tools over Bash for: reading files (use `read`), editing files (use `write`), searching content (use `grep`), finding files (use `glob`), listing directories (use `ls`).
-- Reserve Bash for: installing packages, running git, compiling code, running tests, any shell operation that has no dedicated tool.
-- When using `write` with `old`/`new` for text replacement, ensure the `old` text is unique in the file to avoid unintended replacements.
-- Always prefer editing existing files over creating new ones. Only create files when explicitly required.
-- For complex multi-step tasks, decompose into smaller steps and verify each step before moving on."#,
-    ),
-    (
-        "self_knowledge.md",
-        r#"# Self Knowledge
+```
+[service-name]
+api_key = "xxx"
+username = "user@example.com"
+# other notes
+```
+
+## Notes
+
+- This file is read/writable by the agent
+- Keep sensitive data organized by service
+- Use comments for additional context"#;
+
+const DEFAULT_SELF_KNOWLEDGE: &str = r#"# Self Knowledge
 
 ## What You Can Do
 
@@ -50,22 +152,27 @@ Your core value is **execution**, not teaching. When given a task, your default 
 - Execute terminal commands and iterate based on results
 - Call web search for external information when needed
 - Maintain multi-turn conversation context and continue tasks across turns
+- Access credentials and accounts stored in identities.md
+- Access knowledge base links stored in this file
 
 ## What You Cannot Do
 
 - Access user's display or GUI
-- Read files outside the workspace
+- Read files outside the workspace (except profile files and knowledge base)
 - Execute commands that require interactive terminals (use non-interactive forms)
 
 ## Your Limitations
 
 - You cannot see the current state of the UI — always read files or run commands to verify changes
 - You cannot run browser-based interactions — use `search` for web information instead
-- You trust tool results as truth — if a tool returns something unexpected, verify before proceeding"#,
-    ),
-    (
-        "behavior.md",
-        r#"# Behavior Rules
+- You trust tool results as truth — if a tool returns something unexpected, verify before proceeding
+
+## Knowledge Base
+
+Knowledge files are stored locally in a tree structure. The agent manages this knowledge base.
+To reference knowledge, use the paths stored in this file."#;
+
+const DEFAULT_BEHAVIOR: &str = r#"# Behavior Rules
 
 ## Execution First
 
@@ -105,47 +212,6 @@ Your core value is **execution**, not teaching. When given a task, your default 
 
 ## Memory
 
-- Context is maintained across turns in the conversation history
-- You can reference earlier parts of the conversation to maintain continuity
-- Use `/clear` to reset conversation history (keeps system prompt)"#,
-    ),
-];
-
-pub fn ensure_and_load_profile(profile_dir: &Path) -> Result<Vec<ProfileDoc>> {
-    fs::create_dir_all(profile_dir)?;
-    let reset_profile = std::env::var("ANTLET_PROFILE_RESET")
-        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-        .unwrap_or(false);
-
-    let mut docs = Vec::new();
-    for (name, template) in PROFILE_FILES {
-        let path = profile_dir.join(name);
-        if reset_profile || !path.exists() {
-            fs::write(&path, template)?;
-        }
-        let content = fs::read_to_string(&path)?;
-        docs.push(ProfileDoc { name, content });
-    }
-
-    Ok(docs)
-}
-
-pub fn build_system_prompt(base: &str, workspace: &Path, docs: &[ProfileDoc]) -> String {
-    let mut out = String::new();
-    out.push_str(base);
-    out.push_str("\n\n## Workspace\n");
-    out.push_str(&format!("Current workspace: `{}`\n", workspace.display()));
-    out.push_str("\n## User Configured Profile\n");
-
-    for doc in docs {
-        out.push_str(&format!("\n### {}\n", doc.name));
-        out.push_str(doc.content.trim());
-        out.push('\n');
-    }
-
-    out
-}
-
-pub fn profile_file_names(docs: &[ProfileDoc]) -> Vec<String> {
-    docs.iter().map(|d| d.name.to_string()).collect()
-}
+- Every 20 steps, your context is automatically summarized into this file
+- You can reference behavior.md for recent context summaries
+- Use `/clear` to reset conversation history (keeps system prompt)"#;

@@ -21,7 +21,7 @@ use agent::Agent;
 use cli::CliArgs;
 use config::AppConfig;
 use llm::LlmClient;
-use profile::{build_system_prompt, ensure_and_load_profile, profile_file_names};
+use profile::{build_system_prompt, init_profile, profile_dir, ProfileFiles};
 use scheduler::Scheduler;
 use session_store::SessionStore;
 use tools::ToolRegistry;
@@ -110,21 +110,27 @@ async fn main() -> Result<()> {
     let base_prompt =
         "You are Antlet mini coding agent. Use tools when needed. Keep responses concise.";
 
-    let profile_docs = ensure_and_load_profile(&config.profile_dir)?;
-    let profile_files = profile_file_names(&profile_docs);
-    let system_prompt = build_system_prompt(base_prompt, &workspace, &profile_docs);
+    let data_dir = config.data_dir.clone();
+    let profile_dir = profile_dir(&data_dir);
+    let reset_profile = std::env::var("ANTLET_PROFILE_RESET")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+    let profile = init_profile(&profile_dir, reset_profile)?;
+    let profile_files = ProfileFiles::new(&profile_dir);
+    let profile_file_names = profile_files.names();
+    let system_prompt = build_system_prompt(base_prompt, &workspace, &profile);
 
     let llm = LlmClient::new(
         config.api_key.clone(),
         config.api_base.clone(),
         config.model.clone(),
     );
-    let tools = ToolRegistry::default_for(workspace.clone());
+    let tools = ToolRegistry::with_profile(workspace.clone(), profile_dir.clone());
     let tool_names = tools.names();
     let session = SessionStore::new(&config.data_dir, &config.session);
-    let mut agent = Agent::new(llm, tools, session, system_prompt, config.max_steps).await?;
+    let mut agent = Agent::new(llm, tools, session, system_prompt, config.max_steps, profile_files).await?;
 
-    print_banner(&config, &workspace, &tool_names, &profile_files);
+    print_banner(&config, &workspace, &tool_names, &profile_file_names);
 
     let mut session_renamed = false;
 

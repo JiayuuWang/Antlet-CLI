@@ -2,6 +2,7 @@ mod bash;
 mod glob;
 mod grep;
 mod ls;
+mod profile_write;
 mod read;
 mod search;
 mod write;
@@ -16,6 +17,7 @@ pub use bash::BashTool;
 pub use glob::GlobTool;
 pub use grep::GrepTool;
 pub use ls::LsTool;
+pub use profile_write::ProfileTool;
 pub use read::ReadTool;
 pub use search::SearchTool;
 pub use write::WriteTool;
@@ -92,6 +94,12 @@ impl ToolRegistry {
         registry.register(LsTool::new(workspace.clone()));
         registry.register(BashTool::new(workspace.clone()));
         registry.register(SearchTool::new());
+        registry
+    }
+
+    pub fn with_profile(workspace: PathBuf, profile_dir: PathBuf) -> Self {
+        let mut registry = Self::default_for(workspace);
+        registry.register(ProfileTool::new(profile_dir));
         registry
     }
 
