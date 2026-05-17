@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+use tokio::fs;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
@@ -53,24 +54,29 @@ impl ScheduleStore {
         Self { path }
     }
 
-    pub fn load(&self) -> Result<Vec<ScheduledTask>> {
+    pub async fn load(&self) -> Result<Vec<ScheduledTask>> {
         if !self.path.exists() {
             return Ok(Vec::new());
         }
-        let content = std::fs::read_to_string(&self.path)
+        let content = fs::read_to_string(&self.path)
+            .await
             .context("failed to read schedule file")?;
         let file: ScheduleFile =
             serde_json::from_str(&content).context("failed to parse schedule file")?;
         Ok(file.tasks)
     }
 
-    pub fn save(&self, tasks: &[ScheduledTask]) -> Result<()> {
+    pub async fn save(&self, tasks: &[ScheduledTask]) -> Result<()> {
         let file = ScheduleFile {
             tasks: tasks.to_vec(),
         };
         let content = serde_json::to_string_pretty(&file)
             .context("failed to serialize schedule")?;
-        std::fs::write(&self.path, content)
+        if let Some(parent) = self.path.parent() {
+            fs::create_dir_all(parent).await?;
+        }
+        fs::write(&self.path, content)
+            .await
             .context("failed to write schedule file")?;
         Ok(())
     }

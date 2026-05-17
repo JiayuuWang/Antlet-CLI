@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -60,15 +62,19 @@ struct ApiFunction {
 
 impl LlmClient {
     pub fn new(api_key: String, api_base: String, model: String) -> Self {
+        let http = reqwest::Client::builder()
+            .pool_max_idle_per_host(16)
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
         Self {
-            http: reqwest::Client::new(),
+            http,
             api_key,
             api_base: api_base.trim_end_matches('/').to_string(),
             model,
         }
     }
 
-    pub async fn generate(&self, messages: &[Message], tools: &[Value]) -> Result<LlmReply> {
+    pub async fn generate(&self, messages: &[Message], tools: &Arc<Vec<Value>>) -> Result<LlmReply> {
         let url = format!("{}/chat/completions", self.api_base);
         let req = ChatRequest {
             model: self.model.clone(),
@@ -76,7 +82,7 @@ impl LlmClient {
             tools: if tools.is_empty() {
                 None
             } else {
-                Some(tools.to_vec())
+                Some(tools.as_ref().to_vec())
             },
         };
 

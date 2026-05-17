@@ -20,36 +20,36 @@ impl Scheduler {
         }
     }
 
-    pub fn load_tasks(&self) -> Result<Vec<ScheduledTask>> {
-        self.store.load()
+    pub async fn load_tasks(&self) -> Result<Vec<ScheduledTask>> {
+        self.store.load().await
     }
 
     #[allow(dead_code)]
-    pub fn add_task(&self, task: ScheduledTask) -> Result<()> {
-        let mut tasks = self.store.load().unwrap_or_default();
+    pub async fn add_task(&self, task: ScheduledTask) -> Result<()> {
+        let mut tasks = self.store.load().await.unwrap_or_default();
         tasks.push(task);
-        self.store.save(&tasks)
+        self.store.save(&tasks).await
     }
 
     #[allow(dead_code)]
-    pub fn save_tasks(&self, tasks: &[ScheduledTask]) -> Result<()> {
-        self.store.save(tasks)
+    pub async fn save_tasks(&self, tasks: &[ScheduledTask]) -> Result<()> {
+        self.store.save(tasks).await
     }
 
     #[allow(dead_code)]
-    pub fn remove_task(&self, id: &str) -> Result<()> {
-        let mut tasks = self.store.load().unwrap_or_default();
+    pub async fn remove_task(&self, id: &str) -> Result<()> {
+        let mut tasks = self.store.load().await.unwrap_or_default();
         tasks.retain(|t| t.id != id);
-        self.store.save(&tasks)
+        self.store.save(&tasks).await
     }
 
     #[allow(dead_code)]
-    pub fn list_tasks(&self) -> Result<Vec<ScheduledTask>> {
-        self.store.load()
+    pub async fn list_tasks(&self) -> Result<Vec<ScheduledTask>> {
+        self.store.load().await
     }
 
-    /// Add a task via CLI arguments
-    pub fn add_from_cli(
+    #[allow(dead_code)]
+    pub async fn add_from_cli(
         &self,
         schedule: &str,
         name: &str,
@@ -81,14 +81,14 @@ impl Scheduler {
             next_run,
         };
 
-        self.add_task(task.clone())?;
+        self.store.save(&[task.clone()]).await?;
         Ok(task)
     }
 
     /// Run the scheduler loop. agent must be wrapped in Arc<Mutex<_>>
     pub async fn run(self, agent: Arc<Mutex<Box<Agent>>>) -> Result<()> {
         loop {
-            let tasks = match self.store.load() {
+            let tasks = match self.store.load().await {
                 Ok(t) => t,
                 Err(e) => {
                     eprintln!("scheduler: failed to load tasks: {}", e);
@@ -115,7 +115,7 @@ impl Scheduler {
                     while Instant::now() < deadline {
                         ticker.tick().await;
                         // Check if new task has earlier time
-                        let fresh = self.store.load().ok();
+                        let fresh = self.store.load().await.ok();
                         if let Some(tasks) = fresh {
                             if let Some(earlier) = tasks
                                 .iter()
@@ -167,7 +167,7 @@ impl Scheduler {
         }
 
         // Update task: set last_run, compute next_run for recurring
-        let mut tasks = self.store.load()?;
+        let mut tasks = self.store.load().await?;
         if let Some(t) = tasks.iter_mut().find(|t| t.id == task.id) {
             t.last_run = Some(Utc::now().timestamp());
 
@@ -182,7 +182,7 @@ impl Scheduler {
             }
         }
 
-        self.store.save(&tasks)?;
+        self.store.save(&tasks).await?;
         Ok(())
     }
 }

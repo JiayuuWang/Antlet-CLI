@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
-use std::fs;
 
 use anyhow::Result;
+use tokio::fs;
 
 pub struct Profile {
     pub persona: String,
@@ -41,47 +41,48 @@ impl ProfileFiles {
     }
 }
 
-pub fn init_profile(profile_dir: &Path, reset: bool) -> Result<Profile> {
-    fs::create_dir_all(profile_dir)?;
+pub async fn init_profile(profile_dir: &Path, reset: bool) -> Result<Profile> {
+    fs::create_dir_all(profile_dir).await?;
 
     let files = ProfileFiles::new(profile_dir);
 
     if reset {
-        fs::write(&files.persona, DEFAULT_PERSONA)?;
-        fs::write(&files.identities, DEFAULT_IDENTITIES)?;
-        fs::write(&files.self_knowledge, DEFAULT_SELF_KNOWLEDGE)?;
-        fs::write(&files.behavior, DEFAULT_BEHAVIOR)?;
+        fs::write(&files.persona, DEFAULT_PERSONA).await?;
+        fs::write(&files.identities, DEFAULT_IDENTITIES).await?;
+        fs::write(&files.self_knowledge, DEFAULT_SELF_KNOWLEDGE).await?;
+        fs::write(&files.behavior, DEFAULT_BEHAVIOR).await?;
     } else {
         if !files.persona.exists() {
-            fs::write(&files.persona, DEFAULT_PERSONA)?;
+            fs::write(&files.persona, DEFAULT_PERSONA).await?;
         }
         if !files.identities.exists() {
-            fs::write(&files.identities, DEFAULT_IDENTITIES)?;
+            fs::write(&files.identities, DEFAULT_IDENTITIES).await?;
         }
         if !files.self_knowledge.exists() {
-            fs::write(&files.self_knowledge, DEFAULT_SELF_KNOWLEDGE)?;
+            fs::write(&files.self_knowledge, DEFAULT_SELF_KNOWLEDGE).await?;
         }
         if !files.behavior.exists() {
-            fs::write(&files.behavior, DEFAULT_BEHAVIOR)?;
+            fs::write(&files.behavior, DEFAULT_BEHAVIOR).await?;
         }
     }
 
-    load_profile(profile_dir)
+    load_profile(profile_dir).await
 }
 
-pub fn load_profile(profile_dir: &Path) -> Result<Profile> {
+pub async fn load_profile(profile_dir: &Path) -> Result<Profile> {
     let files = ProfileFiles::new(profile_dir);
     Ok(Profile {
-        persona: read_file(&files.persona)?,
-        identities: read_file(&files.identities)?,
-        self_knowledge: read_file(&files.self_knowledge)?,
-        behavior: read_file(&files.behavior)?,
+        persona: read_file(&files.persona).await?,
+        identities: read_file(&files.identities).await?,
+        self_knowledge: read_file(&files.self_knowledge).await?,
+        behavior: read_file(&files.behavior).await?,
     })
 }
 
-fn read_file(path: &Path) -> Result<String> {
+async fn read_file(path: &Path) -> Result<String> {
     if path.exists() {
-        Ok(fs::read_to_string(path)?)
+        let contents = fs::read_to_string(path).await?;
+        Ok(contents)
     } else {
         Ok(String::new())
     }

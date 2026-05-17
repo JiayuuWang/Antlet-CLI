@@ -1,6 +1,8 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use anyhow::Result;
+use futures::future::join_all;
 
 use crate::{
     llm::LlmClient, profile::ProfileFiles, schema::Message, session_store::SessionStore,
@@ -123,11 +125,25 @@ impl Agent {
                 return Ok(reply.content);
             }
 
-            for call in reply.tool_calls {
+            let tool_futures: Vec<_> = reply.tool_calls.iter().map(|call| {
                 let tool_name = call.function.name.clone();
                 let args = call.function.arguments.clone();
-                let args_str =
-                    serde_json::to_string_pretty(&args).unwrap_or_else(|_| "{}".to_string());
+                let call_id = call.id.clone();
+                let tools = self.tools.clone();
+                async move {
+                    let args_str = serde_json::to_string_pretty(&args).unwrap_or_else(|_| "{}".to_string());
+                    let result = tools.execute(&tool_name, args).await;
+                    (call_id, tool_name, args_str, result)
+                }
+            }).collect();
+
+            let results = join_all(tool_futures).await;
+
+            for (call_id, tool_name, args_str, result) in results {
+                let text = match &result {
+                    Ok(r) => r.as_text(),
+                    Err(e) => format!("error: {}", e),
+                };
 
                 println!(
                     "{}tool>{} {}{}{}",
@@ -139,13 +155,12 @@ impl Agent {
                 );
                 println!("{}tool.args>{}\n{}", Color::DIM, Color::RESET, args_str);
 
-                let result = self.tools.execute(&tool_name, args).await?;
-                let text = result.as_text();
-                let tool_msg = Message::tool(call.id, tool_name, text.clone());
+                let success = result.as_ref().map(|r| r.success).unwrap_or(false);
+                let tool_msg = Message::tool(call_id, tool_name.clone(), text.clone());
                 self.messages.push(tool_msg.clone());
                 self.session.append(&tool_msg).await?;
 
-                if result.success {
+                if success {
                     println!(
                         "{}tool.ok>{} {}",
                         Color::GREEN,
@@ -177,8 +192,8 @@ impl Agent {
         let context = self.build_context_summary();
         let summary = self.generate_summary(&context).await?;
 
-        let behavior_path = &self.profile_files.behavior;
-        let existing = std::fs::read_to_string(behavior_path).unwrap_or_default();
+        let behavior_path = self.profile_files.behavior.clone();
+        let existing = tokio::fs::read_to_string(&behavior_path).await.unwrap_or_default();
         let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M").to_string();
 
         let new_entry = format!(
@@ -192,7 +207,7 @@ impl Agent {
             existing
         } + &new_entry;
 
-        std::fs::write(behavior_path, &updated)?;
+        tokio::fs::write(&behavior_path, &updated).await?;
 
         let memory_block = format!(
             "[Memory update at step {}]: {}",
@@ -268,7 +283,7 @@ impl Agent {
             Message::user(prompt),
         ];
 
-        let reply = self.llm.generate(&temp_messages, &[]).await?;
+        let reply = self.llm.generate(&temp_messages, &Arc::new(vec![])).await?;
         Ok(reply.content)
     }
 

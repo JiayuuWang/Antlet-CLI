@@ -54,13 +54,13 @@ async fn main() -> Result<()> {
     if let Some(schedule) = args.schedule.clone() {
         let data_dir = data_dir_from_env();
         let profile_dir = profile_dir_from_env(&data_dir);
-        let workspace = std::fs::canonicalize(&args.workspace).unwrap_or(args.workspace.clone());
+        let workspace = tokio::fs::canonicalize(&args.workspace).await.unwrap_or(args.workspace.clone());
         let scheduler = Scheduler::new(data_dir);
         let name = args.schedule_name.as_deref().unwrap_or("scheduled task");
         let task_text = args.task.clone().unwrap_or_default();
 
         // Ensure profile dir exists (needed for ensure_and_load_profile)
-        std::fs::create_dir_all(&profile_dir).ok();
+        tokio::fs::create_dir_all(&profile_dir).await.ok();
 
         let task = scheduler.add_from_cli(
             &schedule,
@@ -68,7 +68,7 @@ async fn main() -> Result<()> {
             &task_text,
             &args.session,
             workspace.to_str().unwrap_or("."),
-        )?;
+        ).await?;
 
         println!(
             "{}scheduler{}: task '{}' scheduled (id={})",
@@ -106,7 +106,7 @@ async fn main() -> Result<()> {
         args.model.clone(),
     )?;
 
-    let workspace = std::fs::canonicalize(&config.workspace).unwrap_or(config.workspace.clone());
+    let workspace = tokio::fs::canonicalize(&config.workspace).await.unwrap_or(config.workspace.clone());
     let base_prompt =
         "You are Antlet mini coding agent. Use tools when needed. Keep responses concise.";
 
@@ -115,7 +115,7 @@ async fn main() -> Result<()> {
     let reset_profile = std::env::var("ANTLET_PROFILE_RESET")
         .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
         .unwrap_or(false);
-    let profile = init_profile(&profile_dir, reset_profile)?;
+    let profile = init_profile(&profile_dir, reset_profile).await?;
     let profile_files = ProfileFiles::new(&profile_dir);
     let profile_file_names = profile_files.names();
     let system_prompt = build_system_prompt(base_prompt, &workspace, &profile);
@@ -206,7 +206,7 @@ async fn main() -> Result<()> {
         }
         if input == "/schedule" {
             let scheduler = Scheduler::new(config.data_dir.clone());
-            let tasks = scheduler.load_tasks().unwrap_or_default();
+            let tasks = scheduler.load_tasks().await.unwrap_or_default();
             if tasks.is_empty() {
                 println!("{}schedule{}: no scheduled tasks", Color::DIM, Color::RESET);
             } else {

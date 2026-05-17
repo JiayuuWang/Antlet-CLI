@@ -80,12 +80,14 @@ pub trait Tool: Send + Sync {
 #[derive(Clone)]
 pub struct ToolRegistry {
     tools: HashMap<String, Arc<dyn Tool>>,
+    schemas: Arc<Vec<Value>>,
 }
 
 impl ToolRegistry {
     pub fn default_for(workspace: PathBuf) -> Self {
         let mut registry = Self {
             tools: HashMap::new(),
+            schemas: Arc::new(Vec::new()),
         };
         registry.register(ReadTool::new(workspace.clone()));
         registry.register(WriteTool::new(workspace.clone()));
@@ -104,11 +106,15 @@ impl ToolRegistry {
     }
 
     pub fn register<T: Tool + 'static>(&mut self, tool: T) {
+        let schema = tool.to_openai_schema();
         self.tools.insert(tool.name().to_string(), Arc::new(tool));
+        let mut new_schemas = (*self.schemas).clone();
+        new_schemas.push(schema);
+        self.schemas = Arc::new(new_schemas);
     }
 
-    pub fn schemas(&self) -> Vec<Value> {
-        self.tools.values().map(|t| t.to_openai_schema()).collect()
+    pub fn schemas(&self) -> Arc<Vec<Value>> {
+        self.schemas.clone()
     }
 
     pub fn names(&self) -> Vec<String> {
