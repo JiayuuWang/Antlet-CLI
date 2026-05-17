@@ -88,6 +88,7 @@ cargo run -- --schedule "1747500000" --schedule-name "deploy" --workspace . --ta
 | `ls` | List directory contents |
 | `bash` | Execute shell commands |
 | `search` | Web search via Tavily |
+| `write_profile` | Write to profile files (identities.md, self_knowledge.md, behavior.md) |
 
 ---
 
@@ -116,12 +117,30 @@ Sessions are stored as JSONL in `~/.antlet/sessions/<session>.jsonl`. Scheduled 
 
 On startup, Antlet reads markdown files from `~/.antlet/profile/` (or `ANTLET_PROFILE_DIR`) to build the system prompt:
 
-- `persona.md` - agent identity and values
-- `capabilities.md` - tool descriptions and usage
-- `self_knowledge.md` - what the agent can/cannot do
-- `behavior.md` - execution rules and response style
+| File | Description | Access |
+|------|-------------|--------|
+| `persona.md` | Agent identity and values | read-only |
+| `identities.md` | Credentials, API keys, accounts | read/write |
+| `self_knowledge.md` | Agent capabilities and knowledge base links | read/write |
+| `behavior.md` | Execution rules, response style, memory entries | read/write |
 
 Templates are created automatically on first run. Edit these files to customize behavior.
+
+**identities.md** - Store credentials, API keys, passwords, and account information organized by service.
+
+**self_knowledge.md** - Contains links to local knowledge files (stored in tree structure). The agent manages this knowledge base.
+
+---
+
+## Memory
+
+Every 20 steps, Antlet automatically summarizes the current context:
+
+1. **Summary generation**: Recent conversation (last 40 messages) is sent to LLM for summarization
+2. **Persistent storage**: Summary is appended to `behavior.md` as a Memory Entry with timestamp
+3. **Context injection**: Summary is inserted into current message history as a user message
+
+This ensures long-running sessions maintain context without token bloat. Memory entries in `behavior.md` provide a searchable history of task progress.
 
 ---
 
