@@ -1,14 +1,19 @@
+use std::path::PathBuf;
+
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use super::{Tool, ToolResult};
+use crate::config::get_tavily_api_key;
 
-pub struct SearchTool;
+pub struct SearchTool {
+    config_dir: PathBuf,
+}
 
 impl SearchTool {
-    pub fn new() -> Self {
-        Self
+    pub fn new(config_dir: PathBuf) -> Self {
+        Self { config_dir }
     }
 }
 
@@ -67,8 +72,8 @@ impl Tool for SearchTool {
             .unwrap_or(5)
             .min(10) as usize;
 
-        let api_key = match std::env::var("TAVILY_API_KEY") {
-            Ok(v) if !v.is_empty() => v,
+        let api_key = match get_tavily_api_key(&self.config_dir) {
+            Some(v) if !v.is_empty() => v,
             _ => return ToolResult::err("missing TAVILY_API_KEY"),
         };
 

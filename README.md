@@ -16,12 +16,27 @@ cargo build
 
 ### 2. Configure
 
+**Option A: Environment variables (legacy)**
+
 ```bash
 export ANTLET_API_KEY="your_api_key"
 export ANTLET_API_BASE="https://api.minimaxi.com/v1"   # optional, defaults to MiniMax
 export ANTLET_MODEL="MiniMax-M2.5"                      # optional
-export TAVILY_API_KEY="your_tavily_key"                  # optional, for search tool
+export TAVILY_API_KEY="your_tavily_key"                 # optional, for search tool
 ```
+
+**Option B: Persistent config file (recommended)**
+
+Create `~/.antlet/config.toml`:
+
+```toml
+ANTLET_API_KEY = "your_api_key"
+ANTLET_API_BASE = "https://api.minimaxi.com/v1"  # optional
+ANTLET_MODEL = "MiniMax-M2.5"                    # optional
+TAVILY_API_KEY = "your_tavily_key"               # optional
+```
+
+Environment variables take precedence over config file values.
 
 ### 3. Run
 
@@ -37,15 +52,17 @@ cargo run -- --workspace /path/to/your/project --task "Fix the compile error in 
 
 ## Configuration
 
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `ANTLET_API_KEY` | Yes | - | API key for LLM |
-| `ANTLET_API_BASE` | No | `https://api.minimaxi.com/v1` | OpenAI-compatible endpoint |
-| `ANTLET_MODEL` | No | `MiniMax-M2.5` | Model name |
-| `ANTLET_HOME` | No | `~/.antlet` | Data directory |
-| `ANTLET_PROFILE_DIR` | No | `~/.antlet/profile` | System prompt templates directory |
-| `ANTLET_PROFILE_RESET` | No | `0` | Set to `1` to reset profile templates |
-| `TAVILY_API_KEY` | No | - | Required for `search` tool |
+Configuration can be set via environment variables (highest priority) or `~/.antlet/config.toml`.
+
+| Variable | Config File | Required | Default | Description |
+|----------|-------------|----------|---------|-------------|
+| `ANTLET_API_KEY` | Yes | Yes | - | API key for LLM |
+| `ANTLET_API_BASE` | Yes | No | `https://api.minimaxi.com/v1` | OpenAI-compatible endpoint |
+| `ANTLET_MODEL` | Yes | No | `MiniMax-M2.5` | Model name |
+| `ANTLET_HOME` | No | No | `~/.antlet` | Data directory |
+| `ANTLET_PROFILE_DIR` | No | No | `~/.antlet/profile` | System prompt templates directory |
+| `ANTLET_PROFILE_RESET` | No | No | `0` | Set to `1` to reset profile templates |
+| `TAVILY_API_KEY` | Yes | No | - | Required for `search` tool |
 
 ---
 
@@ -94,7 +111,7 @@ cargo run -- --schedule "1747500000" --schedule-name "deploy" --workspace . --ta
 
 ## Session
 
-Sessions are stored as JSONL in `~/.antlet/sessions/<session>.jsonl`. Scheduled tasks are stored in `~/.antlet/scheduled_tasks.json`. Sessions persist across restarts and are independent of workspace location.
+Sessions are stored as JSONL in `~/.antlet/sessions/<session>.jsonl`. Scheduled tasks are stored in `~/.antlet/scheduled_tasks.json`. Config is stored in `~/.antlet/config.toml`. Sessions persist across restarts and are independent of workspace location.
 
 ---
 

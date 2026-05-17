@@ -55,11 +55,11 @@ async fn main() -> Result<()> {
         let data_dir = data_dir_from_env();
         let profile_dir = profile_dir_from_env(&data_dir);
         let workspace = tokio::fs::canonicalize(&args.workspace).await.unwrap_or(args.workspace.clone());
-        let scheduler = Scheduler::new(data_dir);
+        let scheduler = Scheduler::new(data_dir.clone());
         let name = args.schedule_name.as_deref().unwrap_or("scheduled task");
         let task_text = args.task.clone().unwrap_or_default();
 
-        // Ensure profile dir exists (needed for ensure_and_load_profile)
+        // Ensure profile dir exists
         tokio::fs::create_dir_all(&profile_dir).await.ok();
 
         let task = scheduler.add_from_cli(
@@ -98,19 +98,20 @@ async fn main() -> Result<()> {
         format!("temp-{}", ts)
     };
 
+    let data_dir = data_dir_from_env();
     let config = AppConfig::from_parts(
         args.workspace.clone(),
         args.max_steps,
         session_name.clone(),
         args.api_base.clone(),
         args.model.clone(),
+        &data_dir,
     )?;
 
     let workspace = tokio::fs::canonicalize(&config.workspace).await.unwrap_or(config.workspace.clone());
     let base_prompt =
         "You are Antlet mini coding agent. Use tools when needed. Keep responses concise.";
 
-    let data_dir = config.data_dir.clone();
     let profile_dir = profile_dir(&data_dir);
     let reset_profile = std::env::var("ANTLET_PROFILE_RESET")
         .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))

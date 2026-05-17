@@ -84,7 +84,7 @@ pub struct ToolRegistry {
 }
 
 impl ToolRegistry {
-    pub fn default_for(workspace: PathBuf) -> Self {
+    pub fn default_for(workspace: PathBuf, config_dir: PathBuf) -> Self {
         let mut registry = Self {
             tools: HashMap::new(),
             schemas: Arc::new(Vec::new()),
@@ -95,12 +95,13 @@ impl ToolRegistry {
         registry.register(GlobTool::new(workspace.clone()));
         registry.register(LsTool::new(workspace.clone()));
         registry.register(BashTool::new(workspace.clone()));
-        registry.register(SearchTool::new());
+        registry.register(SearchTool::new(config_dir));
         registry
     }
 
     pub fn with_profile(workspace: PathBuf, profile_dir: PathBuf) -> Self {
-        let mut registry = Self::default_for(workspace);
+        let config_dir = profile_dir.parent().unwrap_or(&profile_dir).to_path_buf();
+        let mut registry = Self::default_for(workspace, config_dir);
         registry.register(ProfileTool::new(profile_dir));
         registry
     }
