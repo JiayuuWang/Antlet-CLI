@@ -87,10 +87,21 @@ async fn main() -> Result<()> {
     }
 
     // Agent modes (interactive/one-shot) require config
+    let explicit_session = args.session != "default" && !args.session.starts_with("temp-");
+    let session_name = if explicit_session {
+        args.session.clone()
+    } else {
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        format!("temp-{}", ts)
+    };
+
     let config = AppConfig::from_parts(
         args.workspace.clone(),
         args.max_steps,
-        args.session.clone(),
+        session_name.clone(),
         args.api_base.clone(),
         args.model.clone(),
     )?;
@@ -114,6 +125,8 @@ async fn main() -> Result<()> {
     let mut agent = Agent::new(llm, tools, session, system_prompt, config.max_steps).await?;
 
     print_banner(&config, &workspace, &tool_names, &profile_files);
+
+    let mut session_renamed = false;
 
     if let Some(task) = args.task {
         println!("{}mode{}: one-shot", Color::DIM, Color::RESET);
@@ -213,11 +226,59 @@ async fn main() -> Result<()> {
         println!("{}user>{} {}", Color::CYAN, Color::RESET, input);
         let result = {
             let mut agent = agent_arc.lock().await;
-            agent.run_task(input).await?
+            let r = agent.run_task(input).await;
+
+            if !session_renamed && !explicit_session {
+                if r.is_ok() {
+                    if let Some(first) = agent.get_first_response() {
+                        let summary = summarize_for_session(&first);
+                        if !summary.is_empty() {
+                            if let Ok(new_store) = SessionStore::new(&config.data_dir, &config.session).rename_to(&summary).await {
+                                session_renamed = true;
+                                if let Ok(msgs) = new_store.load().await {
+                                    agent.replace_messages(msgs);
+                                }
+                                println!(
+                                    "{}session{}: renamed to '{}'",
+                                    Color::YELLOW,
+                                    Color::RESET,
+                                    summary
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+            r?
         };
         println!("\n{}assistant>{} {}", Color::BLUE, Color::RESET, result);
     }
 
     scheduler_handle.abort();
     Ok(())
+}
+
+fn summarize_for_session(text: &str) -> String {
+    let text = text.trim();
+    if text.is_empty() {
+        return String::new();
+    }
+    let words: Vec<&str> = text.split_whitespace().collect();
+    let mut result = String::new();
+    for w in words {
+        if result.len() >= 48 {
+            break;
+        }
+        if !result.is_empty() {
+            result.push('-');
+        }
+        let clean: String = w
+            .chars()
+            .filter(|c| c.is_alphanumeric())
+            .collect();
+        if !clean.is_empty() {
+            result.push_str(&clean);
+        }
+    }
+    result
 }

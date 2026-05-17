@@ -56,6 +56,14 @@ impl Agent {
         self.messages.len()
     }
 
+    pub fn get_first_response(&self) -> Option<String> {
+        self.messages.iter().find(|m| m.role == "assistant" && !m.content.is_empty()).map(|m| m.content.clone())
+    }
+
+    pub fn replace_messages(&mut self, messages: Vec<Message>) {
+        self.messages = messages;
+    }
+
     pub async fn run_task(&mut self, input: &str) -> Result<String> {
         let user = Message::user(input.to_string());
         self.messages.push(user.clone());

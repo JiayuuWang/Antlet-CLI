@@ -29,4 +29,7 @@ pub struct CliArgs {
 
     #[arg(long)]
     pub schedule_name: Option<String>,
+
+    #[arg(long)]
+    pub session_hint: Option<String>,
 }

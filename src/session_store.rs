@@ -65,6 +65,16 @@ impl SessionStore {
         }
         Ok(())
     }
+
+    pub async fn rename_to(&self, new_name: &str) -> Result<SessionStore> {
+        let new_path = self
+            .path
+            .parent()
+            .unwrap()
+            .join(format!("{}.jsonl", new_name));
+        tokio::fs::rename(&self.path, &new_path).await?;
+        Ok(SessionStore { path: new_path })
+    }
 }
 
 #[cfg(test)]

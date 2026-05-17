@@ -1,20 +1,34 @@
 # Rust
 /target/
+**/*.rs.bk
+
+# Cargo
 Cargo.lock
 
 # Local env and config
 .env
 .env.*
 config.local.*
+*.local
 
 # Antlet runtime data
-.antlet/sessions/
-.antlet/logs/
+.antlet/
 
 # Editors and OS
 .DS_Store
 .idea/
 .vscode/
+*~
 
 # api key
 credential.txt
+
+# test
+test-workspace/
+
+# logs
+*.log
+
+# agent
+CLAUDE.md
+.claude/
