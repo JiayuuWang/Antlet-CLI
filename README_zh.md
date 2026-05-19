@@ -18,8 +18,8 @@ cargo build
 
 ```bash
 export ANTLET_API_KEY="your_api_key"
-export ANTLET_API_BASE="https://api.minimaxi.com/v1"   # 可选
-export ANTLET_MODEL="MiniMax-M2.5"                      # 可选
+export ANTLET_API_BASE="your_base_url"   # 可选
+export ANTLET_MODEL="model_name"                      # 可选
 export TAVILY_API_KEY="your_tavily_key"                  # 可选，用于 search 工具
 ```
 
