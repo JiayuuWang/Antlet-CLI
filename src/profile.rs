@@ -69,6 +69,44 @@ pub async fn init_profile(profile_dir: &Path, reset: bool) -> Result<Profile> {
     load_profile(profile_dir).await
 }
 
+/// Optional initial overrides for a sub-agent's writable profile files.
+/// Any field left `None` falls back to the built-in default template.
+#[derive(Debug, Clone, Default)]
+pub struct SubProfileInit {
+    pub persona: Option<String>,
+    pub identities: Option<String>,
+    pub self_knowledge: Option<String>,
+    pub behavior: Option<String>,
+}
+
+/// Materialize an isolated profile directory for a sub-agent. Each writable
+/// file is seeded from the provided override or the built-in default. This
+/// keeps every agent's memory/persona writes fully separated from the parent.
+pub async fn init_sub_profile(profile_dir: &Path, init: &SubProfileInit) -> Result<Profile> {
+    fs::create_dir_all(profile_dir).await?;
+    let files = ProfileFiles::new(profile_dir);
+
+    let persona = init.persona.clone().unwrap_or_else(|| DEFAULT_PERSONA.to_string());
+    let identities = init.identities.clone().unwrap_or_else(|| DEFAULT_IDENTITIES.to_string());
+    let self_knowledge = init
+        .self_knowledge
+        .clone()
+        .unwrap_or_else(|| DEFAULT_SELF_KNOWLEDGE.to_string());
+    let behavior = init.behavior.clone().unwrap_or_else(|| DEFAULT_BEHAVIOR.to_string());
+
+    fs::write(&files.persona, &persona).await?;
+    fs::write(&files.identities, &identities).await?;
+    fs::write(&files.self_knowledge, &self_knowledge).await?;
+    fs::write(&files.behavior, &behavior).await?;
+
+    Ok(Profile {
+        persona,
+        identities,
+        self_knowledge,
+        behavior,
+    })
+}
+
 pub async fn load_profile(profile_dir: &Path) -> Result<Profile> {
     let files = ProfileFiles::new(profile_dir);
     Ok(Profile {
@@ -216,3 +254,47 @@ const DEFAULT_BEHAVIOR: &str = r#"# Behavior Rules
 - Every 20 steps, your context is automatically summarized into this file
 - You can reference behavior.md for recent context summaries
 - Use `/clear` to reset conversation history (keeps system prompt)"#;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[tokio::test]
+    async fn sub_profile_uses_overrides_and_defaults() {
+        let dir = tempdir().unwrap();
+        let pd = dir.path().join("sub_root_1");
+        let init = SubProfileInit {
+            persona: Some("CUSTOM PERSONA".to_string()),
+            identities: None,
+            self_knowledge: Some("CUSTOM SK".to_string()),
+            behavior: None,
+        };
+        let profile = init_sub_profile(&pd, &init).await.unwrap();
+        // overrides applied
+        assert_eq!(profile.persona, "CUSTOM PERSONA");
+        assert_eq!(profile.self_knowledge, "CUSTOM SK");
+        // defaults fall through
+        assert_eq!(profile.identities, DEFAULT_IDENTITIES);
+        assert_eq!(profile.behavior, DEFAULT_BEHAVIOR);
+
+        // files actually written to the isolated dir
+        let files = ProfileFiles::new(&pd);
+        let persona_on_disk = tokio::fs::read_to_string(&files.persona).await.unwrap();
+        assert_eq!(persona_on_disk, "CUSTOM PERSONA");
+        assert!(files.behavior.exists());
+    }
+
+    #[tokio::test]
+    async fn sub_profiles_are_isolated() {
+        let dir = tempdir().unwrap();
+        let a = dir.path().join("a");
+        let b = dir.path().join("b");
+        init_sub_profile(&a, &SubProfileInit { persona: Some("A".into()), ..Default::default() }).await.unwrap();
+        init_sub_profile(&b, &SubProfileInit { persona: Some("B".into()), ..Default::default() }).await.unwrap();
+        let pa = tokio::fs::read_to_string(ProfileFiles::new(&a).persona).await.unwrap();
+        let pb = tokio::fs::read_to_string(ProfileFiles::new(&b).persona).await.unwrap();
+        assert_eq!(pa, "A");
+        assert_eq!(pb, "B");
+    }
+}

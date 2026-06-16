@@ -7,6 +7,7 @@ mod schedule_store;
 mod scheduler;
 mod schema;
 mod session_store;
+mod subagent;
 mod tools;
 mod ui;
 
@@ -24,6 +25,7 @@ use llm::LlmClient;
 use profile::{build_system_prompt, init_profile, profile_dir, ProfileFiles};
 use scheduler::Scheduler;
 use session_store::SessionStore;
+use subagent::{AgentFactory, SubAgentManager};
 use tools::ToolRegistry;
 use ui::{Color, print_banner};
 
@@ -126,7 +128,22 @@ async fn main() -> Result<()> {
         config.api_base.clone(),
         config.model.clone(),
     );
-    let tools = ToolRegistry::with_profile(workspace.clone(), profile_dir.clone());
+
+    // Build the shared factory + root sub-agent manager so the root agent (and
+    // recursively any sub-agent) can spawn/stop children.
+    let factory = Arc::new(AgentFactory::new(
+        config.api_key.clone(),
+        config.api_base.clone(),
+        config.model.clone(),
+        base_prompt.to_string(),
+        workspace.clone(),
+        config.data_dir.clone(),
+        config.max_steps,
+    ));
+    let root_manager = SubAgentManager::new_root(factory);
+
+    let tools =
+        ToolRegistry::with_subagents(workspace.clone(), profile_dir.clone(), root_manager);
     let tool_names = tools.names();
     let session = SessionStore::new(&config.data_dir, &config.session);
     let mut agent = Agent::new(llm, tools, session, system_prompt, config.max_steps, profile_files).await?;
