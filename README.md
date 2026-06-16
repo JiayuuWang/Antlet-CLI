@@ -1,6 +1,6 @@
 # Antlet Agent
 
-> A nano coding agent built with Rust, supporting multi-agent scheduling, memory management, and cron-triggered tasks.
+> A nano coding agent built with Rust, featuring a recursive **sub-agent cluster**, memory management, and cron-triggered tasks.
 
 [English](./README.md) | [中文](./README_zh.md)
 
@@ -50,6 +50,81 @@ cargo run -- --workspace /path/to/your/project --task "Fix the compile error in 
 
 ---
 
+## Sub-Agent Cluster
+
+Antlet's defining feature: any agent can **spawn a cluster of child agents** that
+run tasks in parallel, then **harvest** their results — and children can spawn
+their own children to **unbounded depth**. This turns a single agent into an
+orchestrator that fans work out across a tree of specialized workers.
+
+### Why it matters
+
+- **Parallel speedup** — launch N children in one call; they run concurrently in
+  the background, so the wall-clock time of N tasks ≈ the time of one.
+- **Role specialization** — every child gets its own `system_prompt` (persona),
+  so the same problem can be attacked from multiple expert viewpoints at once.
+- **Full isolation** — each agent (parent or child) has its own session file and
+  its own temporary profile directory, so memory and persona writes never
+  collide. Children never pollute the parent's context.
+- **Unbounded recursion** — children carry the spawn/stop tools too, forming a
+  tree (`root.1`, `root.1.2`, …). A soft global cap
+  (`ANTLET_MAX_LIVE_SUBAGENTS`, default `64`, `0` = unlimited) is a safety valve.
+- **Cooperative control** — the parent can harvest a child's full result
+  (graceful, `wait=true`) or forcefully cancel it (`wait=false`); stopping
+  cascades to all descendants and frees their resources.
+
+### How it works (fan-out / fan-in)
+
+```
+                    root agent
+                       │
+      ┌────────┬───────┼───────┬────────┐   ← fan-out: one spawn_agents call
+   root.1   root.2  root.3  root.4   root.5    launches N parallel children
+      │        │       │       │        │
+   (work)   (work)  (work)  (work)   (work)   ← each runs independently, isolated
+      └────────┴───────┼───────┴────────┘   ← fan-in: stop_agent(wait=true) harvests
+                       │
+                  parent combines results
+```
+
+### The two cluster tools
+
+| Tool | Purpose |
+|------|---------|
+| `spawn_agents` | Launch one or more children. The `agents` array size = number of children. Each entry has a required `system_prompt` plus optional `task` and per-file `.md` overrides (`identities`, `self_knowledge`, `behavior`). Non-blocking — returns child ids immediately. |
+| `stop_agent` | Inspect and stop children. `list: true` reports every child's status; `agent_id` + `wait: true` harvests a finished child's full result; `wait: false` forcefully cancels; `all: true` targets every child. Cascades into descendants. |
+
+### `spawn_agents` parameters
+
+```jsonc
+{
+  "agents": [
+    {
+      "system_prompt": "You are a security reviewer.",   // required: child persona
+      "task": "Audit src/ for injection risks.",          // optional: concrete task
+      "identities": "...",                                 // optional: seed identities.md
+      "self_knowledge": "...",                             // optional: seed self_knowledge.md
+      "behavior": "..."                                    // optional: seed behavior.md
+    }
+    // ... one entry per child to launch
+  ]
+}
+```
+
+### Example prompt
+
+```text
+Spawn 3 sub-agents to review src/main.rs in parallel:
+  1. a security reviewer, 2. a performance reviewer, 3. a maintainability reviewer.
+After they finish, harvest each result with stop_agent (wait=true) and
+summarize their findings into one report.
+```
+
+> A worked end-to-end demo (a 5-section technical document written by a 5-agent
+> cluster) with full execution logs lives in [`demo/fractal-rl-doc/`](./demo/fractal-rl-doc/).
+
+---
+
 ## Configuration
 
 Configuration can be set via environment variables (highest priority) or `~/.antlet/config.toml`.
@@ -62,6 +137,7 @@ Configuration can be set via environment variables (highest priority) or `~/.ant
 | `ANTLET_HOME` | No | No | `~/.antlet` | Data directory |
 | `ANTLET_PROFILE_DIR` | No | No | `~/.antlet/profile` | System prompt templates directory |
 | `ANTLET_PROFILE_RESET` | No | No | `0` | Set to `1` to reset profile templates |
+| `ANTLET_MAX_LIVE_SUBAGENTS` | No | No | `64` | Soft cap on simultaneously-live sub-agents (`0` = unlimited) |
 | `TAVILY_API_KEY` | Yes | No | - | Required for `search` tool |
 
 ---
@@ -106,6 +182,8 @@ cargo run -- --schedule "1747500000" --schedule-name "deploy" --workspace . --ta
 | `bash` | Execute shell commands |
 | `search` | Web search via Tavily |
 | `write_profile` | Write to profile files (identities.md, self_knowledge.md, behavior.md) |
+| `spawn_agents` | Spawn a cluster of child agents that run in parallel (see [Sub-Agent Cluster](#sub-agent-cluster)) |
+| `stop_agent` | Inspect, harvest, or stop child agents |
 
 ---
 
@@ -166,9 +244,10 @@ This ensures long-running sessions maintain context without token bloat. Memory 
 ```
 src/
 ├── main.rs          # entry point, CLI parsing, interactive loop
-├── agent.rs         # Agent struct, run_task loop
+├── agent.rs         # Agent struct, run_task loop, cooperative cancel
 ├── llm.rs           # LlmClient, OpenAI-compatible /chat/completions
 ├── schema.rs        # Message, ToolCall, FunctionCall types
+├── subagent.rs      # AgentFactory + SubAgentManager: spawn/stop, cluster tree
 ├── scheduler.rs     # task scheduler with cron and one-shot support
 ├── schedule_store.rs # JSON persistence for scheduled tasks
 ├── tools/
@@ -179,7 +258,10 @@ src/
 │   ├── glob.rs      # find files by pattern
 │   ├── ls.rs        # list directory contents
 │   ├── bash.rs      # execute shell commands
-│   └── search.rs    # web search via Tavily
+│   ├── search.rs    # web search via Tavily
+│   ├── profile_write.rs # write to profile .md files
+│   ├── spawn.rs     # spawn_agents tool (launch child cluster)
+│   └── stop.rs      # stop_agent tool (inspect/harvest/cancel children)
 ├── config.rs        # AppConfig, environment variable loading
 ├── profile.rs       # system prompt building from .md files
 ├── session_store.rs # JSONL session persistence
@@ -187,6 +269,11 @@ src/
 ```
 
 Core loop in `Agent::run_task()`: send messages + tool schemas → LLM → if tool calls, execute and repeat → else return text.
+
+Sub-agent orchestration lives in `subagent.rs`: an immutable `AgentFactory`
+(shared across the whole tree) builds children exactly like the root, while each
+`SubAgentManager` node owns its direct children — enabling recursive spawning,
+isolated sessions/profiles, and cascading stop.
 
 ---
 
