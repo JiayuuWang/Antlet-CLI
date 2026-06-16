@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -19,6 +20,9 @@ pub struct Agent {
     max_steps: usize,
     step_count: usize,
     profile_files: ProfileFiles,
+    /// Cooperative cancellation flag. When set, `run_task` exits gracefully at
+    /// the next step boundary, leaving session/profile files in a clean state.
+    cancel: Option<Arc<AtomicBool>>,
 }
 
 impl Agent {
@@ -51,7 +55,14 @@ impl Agent {
             max_steps,
             step_count: 0,
             profile_files,
+            cancel: None,
         })
+    }
+
+    /// Attach a cooperative cancellation flag (used by sub-agents so the parent
+    /// can stop them between steps without leaving partial writes).
+    pub fn set_cancel(&mut self, cancel: Arc<AtomicBool>) {
+        self.cancel = Some(cancel);
     }
 
     pub fn clear_history_keep_system(&mut self) {
@@ -90,6 +101,12 @@ impl Agent {
         self.session.append(&user).await?;
 
         for step in 0..self.max_steps {
+            if self.is_cancelled() {
+                let msg = format!("Task stopped by parent at step {}.", step);
+                println!("{}cancelled{}: {}", Color::YELLOW, Color::RESET, msg);
+                return Ok(msg);
+            }
+
             self.step_count += 1;
 
             println!(
@@ -201,11 +218,7 @@ impl Agent {
             timestamp, summary
         );
 
-        let updated = if existing.contains("## Memory Entry") {
-            existing
-        } else {
-            existing
-        } + &new_entry;
+        let updated = existing + &new_entry;
 
         tokio::fs::write(&behavior_path, &updated).await?;
 
@@ -287,21 +300,11 @@ impl Agent {
         Ok(reply.content)
     }
 
-    fn find_system_prompt_end(&self) -> Option<usize> {
-        for (i, msg) in self.messages.iter().enumerate() {
-            if msg.role == "system" {
-                if i == 0 {
-                    let content = &msg.content;
-                    if let Some(pos) = content.find("\n## Profile Files\n") {
-                        return Some(pos);
-                    }
-                    if let Some(pos) = content.find("\n## Workspace\n") {
-                        return Some(pos);
-                    }
-                }
-            }
-        }
-        None
+    fn is_cancelled(&self) -> bool {
+        self.cancel
+            .as_ref()
+            .map(|c| c.load(Ordering::Relaxed))
+            .unwrap_or(false)
     }
 }
 

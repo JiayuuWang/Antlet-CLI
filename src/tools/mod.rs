@@ -5,6 +5,8 @@ mod ls;
 mod profile_write;
 mod read;
 mod search;
+mod spawn;
+mod stop;
 mod write;
 
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
@@ -20,7 +22,11 @@ pub use ls::LsTool;
 pub use profile_write::ProfileTool;
 pub use read::ReadTool;
 pub use search::SearchTool;
+pub use spawn::SpawnTool;
+pub use stop::StopTool;
 pub use write::WriteTool;
+
+use crate::subagent::SubAgentManager;
 
 #[derive(Debug, Clone)]
 pub struct ToolResult {
@@ -103,6 +109,20 @@ impl ToolRegistry {
         let config_dir = profile_dir.parent().unwrap_or(&profile_dir).to_path_buf();
         let mut registry = Self::default_for(workspace, config_dir);
         registry.register(ProfileTool::new(profile_dir));
+        registry
+    }
+
+    /// Like `with_profile`, but also wires in the `spawn_agents` and
+    /// `stop_agent` tools backed by the given sub-agent manager. Used for both
+    /// the root agent and every sub-agent (so recursion works).
+    pub fn with_subagents(
+        workspace: PathBuf,
+        profile_dir: PathBuf,
+        manager: Arc<SubAgentManager>,
+    ) -> Self {
+        let mut registry = Self::with_profile(workspace, profile_dir);
+        registry.register(SpawnTool::new(manager.clone()));
+        registry.register(StopTool::new(manager));
         registry
     }
 
