@@ -11,10 +11,10 @@ pub struct SessionStore {
 }
 
 impl SessionStore {
-    pub fn new(data_dir: &Path, session_name: &str) -> Self {
-        let path = data_dir
-            .join("sessions")
-            .join(format!("{}.jsonl", session_name));
+    /// Create a store for a session belonging to a specific agent, using the
+    /// agent-centric layout `~/.antlet/agents/<agent-id>/sessions/<session>.jsonl`.
+    pub fn for_agent(data_dir: &Path, agent_id: &str, session_name: &str) -> Self {
+        let path = crate::paths::agent_session_file(data_dir, agent_id, session_name);
         Self { path }
     }
 
@@ -65,16 +65,6 @@ impl SessionStore {
         }
         Ok(())
     }
-
-    pub async fn rename_to(&self, new_name: &str) -> Result<SessionStore> {
-        let new_path = self
-            .path
-            .parent()
-            .unwrap()
-            .join(format!("{}.jsonl", new_name));
-        tokio::fs::rename(&self.path, &new_path).await?;
-        Ok(SessionStore { path: new_path })
-    }
 }
 
 #[cfg(test)]
@@ -88,7 +78,7 @@ mod tests {
     #[tokio::test]
     async fn append_and_load() {
         let dir = tempdir().unwrap();
-        let store = SessionStore::new(dir.path(), "test");
+        let store = SessionStore::for_agent(dir.path(), "agent-x", "main");
         store.append(&Message::user("hello")).await.unwrap();
         let loaded = store.load().await.unwrap();
         assert_eq!(loaded.len(), 1);

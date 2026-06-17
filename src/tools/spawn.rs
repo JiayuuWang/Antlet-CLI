@@ -24,13 +24,27 @@ impl Tool for SpawnTool {
     }
 
     fn description(&self) -> &'static str {
-        "Spawn one or more sub-agents that run tasks in the background. The size \
-         of the `agents` array is the number of sub-agents to launch. Each \
-         sub-agent gets its own isolated session and profile so they never \
-         interfere with each other or with you. Returns the assigned ids \
-         immediately (non-blocking). Use `stop_agent` later to harvest a \
-         finished sub-agent's result (wait=true) or to forcefully stop one \
-         (wait=false). Sub-agents may spawn their own sub-agents."
+        "Spawn one or more sub-agents that run tasks in the BACKGROUND, IN PARALLEL. \
+         The size of the `agents` array is the number of sub-agents launched at once.\n\n\
+         WHEN TO USE — be proactive: whenever a task can be broken into independent \
+         sub-tasks, DECOMPOSE it and spawn one sub-agent per sub-task instead of doing \
+         the work yourself sequentially. This is the single biggest lever for speed. \
+         Good examples:\n\
+         - Translating or summarizing a book → one sub-agent per chapter/section.\n\
+         - Reviewing a codebase → one sub-agent per module/directory/concern.\n\
+         - Researching a broad topic → one sub-agent per sub-question.\n\
+         - Generating a multi-section document → one sub-agent per section.\n\n\
+         RECURSE for maximum parallelism: a sub-task that is still large should itself be \
+         decomposed. Sub-agents carry these same tools, so a chapter agent can spawn a \
+         sub-agent per paragraph, and so on. Prefer a wide, shallow tree of many small \
+         agents over a few agents doing large serial work — this maximizes parallel \
+         speedup.\n\n\
+         Each sub-agent gets its own isolated session and profile, so they never \
+         interfere with each other or with you. This call is NON-BLOCKING: it returns \
+         the assigned ids immediately while the sub-agents run. Later use `stop_agent` \
+         to harvest a finished sub-agent's result (wait=true) or to stop one \
+         (wait=false). Always give each sub-agent a short `label` describing its slice \
+         (e.g. \"ch1\", \"intro\", \"auth-module\") so its id and output are easy to track."
     }
 
     fn parameters(&self) -> Value {
@@ -40,7 +54,7 @@ impl Tool for SpawnTool {
                 "agents": {
                     "type": "array",
                     "minItems": 1,
-                    "description": "One entry per sub-agent to launch.",
+                    "description": "One entry per sub-agent to launch. To parallelize, decompose the task and add one entry per independent slice.",
                     "items": {
                         "type": "object",
                         "properties": {
@@ -50,7 +64,11 @@ impl Tool for SpawnTool {
                             },
                             "task": {
                                 "type": "string",
-                                "description": "Optional. The concrete task to execute. If omitted, the sub-agent works from its system_prompt."
+                                "description": "Optional. The concrete sub-task to execute. If omitted, the sub-agent works from its system_prompt."
+                            },
+                            "label": {
+                                "type": "string",
+                                "description": "Optional but recommended. A short human-meaningful name for this sub-agent's slice (e.g. 'ch1', 'auth-module'). It is appended to the sub-agent's hierarchical id (e.g. 'root.1-ch1') and shown as the prefix on its output, so you can track which sub-agent is which."
                             },
                             "identities": {
                                 "type": "string",
@@ -95,6 +113,10 @@ impl Tool for SpawnTool {
                 .get("task")
                 .and_then(Value::as_str)
                 .map(|s| s.to_string());
+            let label = item
+                .get("label")
+                .and_then(Value::as_str)
+                .map(|s| s.to_string());
             let init = SubProfileInit {
                 persona: None, // persona is filled from system_prompt by the manager
                 identities: item
@@ -113,6 +135,7 @@ impl Tool for SpawnTool {
             specs.push(SpawnSpec {
                 system_prompt,
                 task,
+                label,
                 init,
             });
         }

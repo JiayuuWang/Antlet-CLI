@@ -158,9 +158,32 @@ cargo run -- --schedule "1747500000" --schedule-name "部署" --workspace . --ta
 
 ---
 
-## 会话
+## 后台目录结构
 
-会话保存在 `~/.antlet/sessions/<session>.jsonl`，定时任务保存在 `~/.antlet/scheduled_tasks.json`。会话跨重启持久化，与工作目录解耦。
+Antlet 以 **agent** 作为后台信息组织的最高层级（在 session 之上）。每个 agent——
+无论是 CLI 启动的根 agent，还是它派生的任何子 agent——都是**平等的**对等目录，结构完全一致：
+
+```
+~/.antlet/
+├── config.toml
+├── scheduled_tasks.json
+├── profile/                      # 用户可编辑的共享模板（新 agent 据此初始化）
+└── agents/
+    └── <agent-id>/
+        ├── profile/              # 该 agent 自己的 persona.md, identities.md ...
+        └── sessions/
+            └── main.jsonl
+```
+
+`agent-id` 编码了层级血缘，同时作为磁盘目录名和控制台输出前缀：
+
+- **根 agent**：id 初始为 `temp-<时间戳>`，随后根据首次回复摘要重命名（如 `Hello`），
+  整个 agent 目录一起迁移。
+- **子 agent**：`<父id>.<序号>-<label>`，其中 `label` 是父 agent 派生时可指定的简短名称。
+  示例树：`translate-book` → `translate-book.1-ch1` → `translate-book.1-ch1.2-sec2`。
+
+每个 agent 输出的每一行都以 `[<id>]`（根 agent 为 `[main]`）为前缀，因此在多 agent
+运行中你随时能分辨当前输出来自哪个 agent。会话跨重启持久化，与工作目录解耦。
 
 ---
 
@@ -218,6 +241,7 @@ src/
 ├── config.rs        # AppConfig，环境变量加载
 ├── profile.rs       # 从 .md 文件构建系统提示词
 ├── session_store.rs # JSONL 会话持久化
+├── paths.rs         # agent 中心化的 ~/.antlet 目录布局辅助
 └── ui.rs            # 彩色终端输出
 ```
 

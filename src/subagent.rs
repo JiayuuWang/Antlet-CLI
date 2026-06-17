@@ -6,15 +6,20 @@
 //! Design goals:
 //! - **Non-blocking spawn**: children run on their own tokio tasks; spawn
 //!   returns immediately with their ids.
-//! - **No interference**: every agent (parent or child) gets its own session
-//!   file and its own isolated profile directory, so memory/persona writes
-//!   never collide.
+//! - **Peer organization**: every agent — root or child — lives under
+//!   `~/.antlet/agents/<agent-id>/` with its own `profile/` and `sessions/`.
+//!   Parent and child are organized identically; there is no special
+//!   `sub_profiles` area.
+//! - **Hierarchical ids**: a child's id is `<parent-id>.<ordinal>` plus an
+//!   optional parent-chosen label, e.g. `translate-book.1-ch1`. The id encodes
+//!   the full lineage and is also the on-disk directory name and the output
+//!   prefix, so the live tree, the disk tree, and the console all line up.
 //! - **Unbounded recursion**: children carry the same spawn/stop tools, so they
 //!   can spawn their own children to any depth. A soft global cap on the number
 //!   of simultaneously-live agents acts as a safety valve only.
 //! - **Cooperative cancellation + cascade**: stopping an agent flips a cancel
 //!   flag (graceful) or aborts (forceful) and recursively reaps all of its
-//!   descendants, cleaning up their temp profile dirs.
+//!   descendants, cleaning up their on-disk directories.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -27,6 +32,7 @@ use tokio::task::JoinHandle;
 
 use crate::agent::Agent;
 use crate::llm::LlmClient;
+use crate::paths;
 use crate::profile::{build_system_prompt, init_sub_profile, ProfileFiles, SubProfileInit};
 use crate::session_store::SessionStore;
 use crate::tools::ToolRegistry;
@@ -96,10 +102,6 @@ impl AgentFactory {
             max_live,
         }
     }
-
-    fn sub_profiles_root(&self) -> PathBuf {
-        self.data_dir.join("sub_profiles")
-    }
 }
 
 /// One entry per live child owned by a manager.
@@ -112,7 +114,8 @@ struct ChildEntry {
     cancel: Arc<AtomicBool>,
     /// The child's own manager, so we can cascade stop/reap its descendants.
     child_manager: Arc<SubAgentManager>,
-    profile_dir: PathBuf,
+    /// This agent's whole on-disk directory (`agents/<id>/`), removed on stop.
+    agent_dir: PathBuf,
 }
 
 /// Specification for a single child to spawn.
@@ -120,6 +123,9 @@ struct ChildEntry {
 pub struct SpawnSpec {
     pub system_prompt: String,
     pub task: Option<String>,
+    /// Optional parent-chosen label appended to the child's id, e.g. `ch1`.
+    /// Makes the id human-meaningful: `translate-book.1-ch1`.
+    pub label: Option<String>,
     pub init: SubProfileInit,
 }
 
@@ -135,9 +141,15 @@ pub struct SubAgentManager {
 
 impl SubAgentManager {
     pub fn new_root(factory: Arc<AgentFactory>) -> Arc<Self> {
+        Self::new_root_with_id(factory, "root")
+    }
+
+    /// Root manager whose id prefix is the root agent's id, so children get
+    /// ids like `<root-id>.1-label` that share the root's lineage namespace.
+    pub fn new_root_with_id(factory: Arc<AgentFactory>, root_id: &str) -> Arc<Self> {
         Arc::new(Self {
             factory,
-            id_prefix: "root".to_string(),
+            id_prefix: root_id.to_string(),
             next_ordinal: AtomicUsize::new(0),
             children: Mutex::new(HashMap::new()),
         })
@@ -183,11 +195,19 @@ impl SubAgentManager {
             }
 
             let ordinal = self.next_ordinal.fetch_add(1, Ordering::SeqCst) + 1;
-            let id = format!("{}.{}", self.id_prefix, ordinal);
+            // Hierarchical id: <parent-id>.<ordinal> plus optional parent label.
+            let id = match &spec.label {
+                Some(label) if !label.trim().is_empty() => {
+                    format!("{}.{}-{}", self.id_prefix, ordinal, slugify(label))
+                }
+                _ => format!("{}.{}", self.id_prefix, ordinal),
+            };
             let task = spec.task.clone().unwrap_or_else(|| Self::default_task(&spec.system_prompt));
 
-            // Isolated profile dir: persona = the provided system_prompt.
-            let profile_dir = self.factory.sub_profiles_root().join(id.replace('.', "_"));
+            // Agent-centric layout: this child gets its own peer directory under
+            // `agents/<id>/`, identical in shape to the root agent.
+            let agent_dir = paths::agent_dir(&self.factory.data_dir, &id);
+            let profile_dir = paths::agent_profile_dir(&self.factory.data_dir, &id);
             let init = SubProfileInit {
                 persona: Some(spec.system_prompt.clone()),
                 identities: spec.init.identities.clone(),
@@ -218,9 +238,10 @@ impl SubAgentManager {
                 child_manager.clone(),
             );
 
-            let session = SessionStore::new(
+            let session = SessionStore::for_agent(
                 &self.factory.data_dir,
-                &format!("subagent-{}", id.replace('.', "_")),
+                &id,
+                paths::DEFAULT_SESSION,
             );
 
             let profile_files = ProfileFiles::new(&profile_dir);
@@ -234,6 +255,9 @@ impl SubAgentManager {
                 profile_files,
             )
             .await?;
+            // The agent labels every output line with its id so the user can
+            // tell which agent in the tree is speaking.
+            agent.set_label(id.clone());
 
             let cancel = Arc::new(AtomicBool::new(false));
             agent.set_cancel(cancel.clone());
@@ -303,7 +327,7 @@ impl SubAgentManager {
                 handle: Mutex::new(Some(handle)),
                 cancel,
                 child_manager,
-                profile_dir,
+                agent_dir,
             });
 
             self.children.lock().await.insert(id.clone(), entry);
@@ -382,8 +406,8 @@ impl SubAgentManager {
             }
         };
 
-        // Clean up the isolated profile directory.
-        let _ = tokio::fs::remove_dir_all(&entry.profile_dir).await;
+        // Clean up this agent's whole on-disk directory (profile + sessions).
+        let _ = tokio::fs::remove_dir_all(&entry.agent_dir).await;
 
         eprintln!(
             "{}subagent{}: {} stopped ({})",
@@ -437,6 +461,34 @@ fn truncate(s: &str, max: usize) -> String {
     }
 }
 
+/// Turn a parent-provided label into a compact, path-safe slug used in the
+/// child id. Keeps alphanumerics (incl. CJK), maps spaces/separators to `-`,
+/// and caps the length so ids stay readable.
+fn slugify(label: &str) -> String {
+    let mut out = String::new();
+    let mut prev_dash = false;
+    for ch in label.trim().chars() {
+        if ch.is_alphanumeric() {
+            out.push(ch);
+            prev_dash = false;
+        } else if matches!(ch, ' ' | '-' | '_' | '.' | '/' | '\t') {
+            if !prev_dash && !out.is_empty() {
+                out.push('-');
+                prev_dash = true;
+            }
+        }
+        if out.chars().count() >= 24 {
+            break;
+        }
+    }
+    let slug = out.trim_matches('-').to_string();
+    if slug.is_empty() {
+        "sub".to_string()
+    } else {
+        slug
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -486,5 +538,14 @@ mod tests {
         assert_eq!(ChildStatus::Completed.as_str(), "completed");
         assert_eq!(ChildStatus::Failed.as_str(), "failed");
         assert_eq!(ChildStatus::Stopped.as_str(), "stopped");
+    }
+
+    #[test]
+    fn slugify_makes_path_safe_labels() {
+        assert_eq!(slugify("ch1"), "ch1");
+        assert_eq!(slugify("Chapter 1"), "Chapter-1");
+        assert_eq!(slugify("  fetch/parse  "), "fetch-parse");
+        assert_eq!(slugify("!!!"), "sub");
+        assert_eq!(slugify("第一章"), "第一章");
     }
 }

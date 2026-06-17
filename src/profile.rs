@@ -41,6 +41,8 @@ impl ProfileFiles {
     }
 }
 
+/// Initialize the shared, user-editable profile template at `~/.antlet/profile/`.
+/// This is the canonical source the root agent's profile is seeded from.
 pub async fn init_profile(profile_dir: &Path, reset: bool) -> Result<Profile> {
     fs::create_dir_all(profile_dir).await?;
 
@@ -115,6 +117,51 @@ pub async fn load_profile(profile_dir: &Path) -> Result<Profile> {
         self_knowledge: read_file(&files.self_knowledge).await?,
         behavior: read_file(&files.behavior).await?,
     })
+}
+
+/// Initialize the root agent's own profile directory under `agents/<id>/profile`.
+///
+/// To preserve the user-editable shared template at `~/.antlet/profile/`, this
+/// seeds the agent's profile from that template when it exists, otherwise from
+/// the built-in defaults. If the agent profile already exists (e.g. resuming a
+/// session) it is loaded as-is. This keeps the root agent organized exactly
+/// like a sub-agent — a peer directory under `agents/`.
+pub async fn init_root_agent_profile(
+    agent_profile_dir: &Path,
+    shared_template_dir: &Path,
+    reset: bool,
+) -> Result<Profile> {
+    fs::create_dir_all(agent_profile_dir).await?;
+    let files = ProfileFiles::new(agent_profile_dir);
+
+    let template = ProfileFiles::new(shared_template_dir);
+    // Seed each file if missing (or reset requested): prefer the shared
+    // template's content, falling back to the built-in default.
+    seed_file(&files.persona, &template.persona, DEFAULT_PERSONA, reset).await?;
+    seed_file(&files.identities, &template.identities, DEFAULT_IDENTITIES, reset).await?;
+    seed_file(
+        &files.self_knowledge,
+        &template.self_knowledge,
+        DEFAULT_SELF_KNOWLEDGE,
+        reset,
+    )
+    .await?;
+    seed_file(&files.behavior, &template.behavior, DEFAULT_BEHAVIOR, reset).await?;
+
+    load_profile(agent_profile_dir).await
+}
+
+async fn seed_file(dest: &Path, template: &Path, default: &str, reset: bool) -> Result<()> {
+    if dest.exists() && !reset {
+        return Ok(());
+    }
+    let content = if template.exists() {
+        fs::read_to_string(template).await.unwrap_or_else(|_| default.to_string())
+    } else {
+        default.to_string()
+    };
+    fs::write(dest, content).await?;
+    Ok(())
 }
 
 async fn read_file(path: &Path) -> Result<String> {

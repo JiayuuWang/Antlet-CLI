@@ -23,6 +23,9 @@ pub struct Agent {
     /// Cooperative cancellation flag. When set, `run_task` exits gracefully at
     /// the next step boundary, leaving session/profile files in a clean state.
     cancel: Option<Arc<AtomicBool>>,
+    /// Short identity label shown at the start of every output line so the user
+    /// can tell which agent is speaking (e.g. the agent-id / session name).
+    label: String,
 }
 
 impl Agent {
@@ -56,7 +59,18 @@ impl Agent {
             step_count: 0,
             profile_files,
             cancel: None,
+            label: "main".to_string(),
         })
+    }
+
+    /// Set the identity label shown as a prefix on this agent's output lines.
+    pub fn set_label(&mut self, label: impl Into<String>) {
+        self.label = label.into();
+    }
+
+    /// Format this agent's output prefix, e.g. `[main]` or `[root.1-ch1]`.
+    fn tag(&self) -> String {
+        format!("{}[{}]{} ", Color::BOLD, self.label, Color::RESET)
     }
 
     /// Attach a cooperative cancellation flag (used by sub-agents so the parent
@@ -91,6 +105,13 @@ impl Agent {
         self.messages = messages;
     }
 
+    /// Point this agent at a new session store and profile files after its
+    /// on-disk agent directory has been renamed (root rename on summary).
+    pub fn rebind_storage(&mut self, session: SessionStore, profile_files: ProfileFiles) {
+        self.session = session;
+        self.profile_files = profile_files;
+    }
+
     pub fn profile_dir(&self) -> PathBuf {
         self.profile_files.persona.parent().unwrap().to_path_buf()
     }
@@ -103,14 +124,16 @@ impl Agent {
         for step in 0..self.max_steps {
             if self.is_cancelled() {
                 let msg = format!("Task stopped by parent at step {}.", step);
-                println!("{}cancelled{}: {}", Color::YELLOW, Color::RESET, msg);
+                println!("{}{}cancelled{}: {}", self.tag(), Color::YELLOW, Color::RESET, msg);
                 return Ok(msg);
             }
 
             self.step_count += 1;
+            let tag = self.tag();
 
             println!(
-                "{}[step {}/{}] thinking{}",
+                "{}{}[step {}/{}] thinking{}",
+                tag,
                 Color::DIM,
                 step + 1,
                 self.max_steps,
@@ -135,7 +158,8 @@ impl Agent {
 
             if !reply.content.is_empty() {
                 println!(
-                    "{}assistant>{} {}",
+                    "{}{}assistant>{} {}",
+                    tag,
                     Color::BLUE,
                     Color::RESET,
                     summarize(&reply.content)
@@ -163,14 +187,15 @@ impl Agent {
                 };
 
                 println!(
-                    "{}tool>{} {}{}{}",
+                    "{}{}tool>{} {}{}{}",
+                    tag,
                     Color::MAGENTA,
                     Color::RESET,
                     Color::BOLD,
                     tool_name,
                     Color::RESET
                 );
-                println!("{}tool.args>{}\n{}", Color::DIM, Color::RESET, args_str);
+                println!("{}{}tool.args>{}\n{}", tag, Color::DIM, Color::RESET, args_str);
 
                 let success = result.as_ref().map(|r| r.success).unwrap_or(false);
                 let tool_msg = Message::tool(call_id, tool_name.clone(), text.clone());
@@ -179,14 +204,16 @@ impl Agent {
 
                 if success {
                     println!(
-                        "{}tool.ok>{} {}",
+                        "{}{}tool.ok>{} {}",
+                        tag,
                         Color::GREEN,
                         Color::RESET,
                         summarize(&text)
                     );
                 } else {
                     println!(
-                        "{}tool.err>{} {}",
+                        "{}{}tool.err>{} {}",
+                        tag,
                         Color::RED,
                         Color::RESET,
                         summarize(&text)
@@ -232,7 +259,8 @@ impl Agent {
         self.session.append(&mem_msg).await?;
 
         println!(
-            "{}memory{}: context summarized and stored at step {}",
+            "{}{}memory{}: context summarized and stored at step {}",
+            self.tag(),
             Color::YELLOW,
             Color::RESET,
             self.step_count

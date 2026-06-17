@@ -187,9 +187,36 @@ cargo run -- --schedule "1747500000" --schedule-name "deploy" --workspace . --ta
 
 ---
 
-## Session
+## Backend Layout
 
-Sessions are stored as JSONL in `~/.antlet/sessions/<session>.jsonl`. Scheduled tasks are stored in `~/.antlet/scheduled_tasks.json`. Config is stored in `~/.antlet/config.toml`. Sessions persist across restarts and are independent of workspace location.
+Antlet organizes its backend around the **agent** as the top-level unit (a layer
+above the session). Every agent — the root started from the CLI and every
+sub-agent it spawns — is a *peer* directory, organized identically:
+
+```
+~/.antlet/
+├── config.toml
+├── scheduled_tasks.json
+├── profile/                      # user-editable shared template (seeds new agents)
+└── agents/
+    └── <agent-id>/
+        ├── profile/              # this agent's persona.md, identities.md, ...
+        └── sessions/
+            └── main.jsonl
+```
+
+An `agent-id` encodes lineage and doubles as the on-disk directory name and the
+console output prefix:
+
+- **Root agent**: id starts as `temp-<ts>`, then is renamed to a summary of the
+  first reply (e.g. `Hello`) — the whole agent directory moves with it.
+- **Sub-agent**: `<parent-id>.<ordinal>-<label>`, where `label` is an optional
+  short name the parent supplies when spawning. Example tree:
+  `translate-book` → `translate-book.1-ch1` → `translate-book.1-ch1.2-sec2`.
+
+Every line an agent prints is prefixed with `[<id>]` (or `[main]` for the root),
+so in a multi-agent run you can always tell which agent is speaking. Sessions
+persist across restarts and are independent of workspace location.
 
 ---
 
@@ -265,6 +292,7 @@ src/
 ├── config.rs        # AppConfig, environment variable loading
 ├── profile.rs       # system prompt building from .md files
 ├── session_store.rs # JSONL session persistence
+├── paths.rs         # agent-centric ~/.antlet layout helpers
 └── ui.rs            # colored terminal output
 ```
 

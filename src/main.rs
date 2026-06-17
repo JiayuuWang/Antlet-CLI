@@ -2,6 +2,7 @@ mod agent;
 mod cli;
 mod config;
 mod llm;
+mod paths;
 mod profile;
 mod schedule_store;
 mod scheduler;
@@ -22,7 +23,7 @@ use agent::Agent;
 use cli::CliArgs;
 use config::AppConfig;
 use llm::LlmClient;
-use profile::{build_system_prompt, init_profile, profile_dir, ProfileFiles};
+use profile::{build_system_prompt, init_profile, init_root_agent_profile, profile_dir, ProfileFiles};
 use scheduler::Scheduler;
 use session_store::SessionStore;
 use subagent::{AgentFactory, SubAgentManager};
@@ -114,11 +115,19 @@ async fn main() -> Result<()> {
     let base_prompt =
         "You are Antlet mini coding agent. Use tools when needed. Keep responses concise.";
 
-    let profile_dir = profile_dir(&data_dir);
+    // The root agent is identified by its id (== session name), and lives under
+    // `agents/<id>/` exactly like any sub-agent. Its profile is seeded from the
+    // user-editable shared template at `~/.antlet/profile/`.
+    let mut agent_id = session_name.clone();
+    let shared_template_dir = profile_dir(&data_dir);
     let reset_profile = std::env::var("ANTLET_PROFILE_RESET")
         .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
         .unwrap_or(false);
-    let profile = init_profile(&profile_dir, reset_profile).await?;
+    // Ensure the user-editable shared template exists; the root agent's own
+    // profile is then seeded from it.
+    init_profile(&shared_template_dir, reset_profile).await.ok();
+    let profile_dir = paths::agent_profile_dir(&data_dir, &agent_id);
+    let profile = init_root_agent_profile(&profile_dir, &shared_template_dir, reset_profile).await?;
     let profile_files = ProfileFiles::new(&profile_dir);
     let profile_file_names = profile_files.names();
     let system_prompt = build_system_prompt(base_prompt, &workspace, &profile);
@@ -140,13 +149,15 @@ async fn main() -> Result<()> {
         config.data_dir.clone(),
         config.max_steps,
     ));
-    let root_manager = SubAgentManager::new_root(factory);
+    let root_manager = SubAgentManager::new_root_with_id(factory, &agent_id);
 
     let tools =
         ToolRegistry::with_subagents(workspace.clone(), profile_dir.clone(), root_manager);
     let tool_names = tools.names();
-    let session = SessionStore::new(&config.data_dir, &config.session);
+    let session = SessionStore::for_agent(&config.data_dir, &agent_id, paths::DEFAULT_SESSION);
     let mut agent = Agent::new(llm, tools, session, system_prompt, config.max_steps, profile_files).await?;
+    // Show a friendly label for the root; sub-agents get their hierarchical id.
+    agent.set_label("main");
 
     print_banner(&config, &workspace, &tool_names, &profile_file_names);
 
@@ -256,18 +267,35 @@ async fn main() -> Result<()> {
                 if r.is_ok() {
                     if let Some(first) = agent.get_first_response() {
                         let summary = summarize_for_session(&first);
-                        if !summary.is_empty() {
-                            if let Ok(new_store) = SessionStore::new(&config.data_dir, &config.session).rename_to(&summary).await {
-                                session_renamed = true;
-                                if let Ok(msgs) = new_store.load().await {
-                                    agent.replace_messages(msgs);
+                        if !summary.is_empty() && summary != agent_id {
+                            // Rename the whole agent directory (profile + sessions
+                            // move together), keeping the agent-centric layout.
+                            match paths::rename_agent(&config.data_dir, &agent_id, &summary).await {
+                                Ok(_) => {
+                                    session_renamed = true;
+                                    let new_store = SessionStore::for_agent(
+                                        &config.data_dir,
+                                        &summary,
+                                        paths::DEFAULT_SESSION,
+                                    );
+                                    let new_profile = ProfileFiles::new(
+                                        &paths::agent_profile_dir(&config.data_dir, &summary),
+                                    );
+                                    if let Ok(msgs) = new_store.load().await {
+                                        agent.replace_messages(msgs);
+                                    }
+                                    agent.rebind_storage(new_store, new_profile);
+                                    agent_id = summary.clone();
+                                    println!(
+                                        "{}agent{}: renamed to '{}'",
+                                        Color::YELLOW,
+                                        Color::RESET,
+                                        summary
+                                    );
                                 }
-                                println!(
-                                    "{}session{}: renamed to '{}'",
-                                    Color::YELLOW,
-                                    Color::RESET,
-                                    summary
-                                );
+                                Err(e) => {
+                                    eprintln!("agent rename failed: {}", e);
+                                }
                             }
                         }
                     }
