@@ -19,7 +19,8 @@
 //!   of simultaneously-live agents acts as a safety valve only.
 //! - **Cooperative cancellation + cascade**: stopping an agent flips a cancel
 //!   flag (graceful) or aborts (forceful) and recursively reaps all of its
-//!   descendants, cleaning up their on-disk directories.
+//!   descendants. Each agent's on-disk directory (profile + sessions) is
+//!   retained after stop for later tracing/auditing, just like the root agent's.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -406,15 +407,16 @@ impl SubAgentManager {
             }
         };
 
-        // Clean up this agent's whole on-disk directory (profile + sessions).
-        let _ = tokio::fs::remove_dir_all(&entry.agent_dir).await;
-
+        // Retain this agent's on-disk directory (profile + sessions) after
+        // harvest/stop, so its full history stays available for later tracing
+        // and auditing — mirroring how the root agent's records are kept.
         eprintln!(
-            "{}subagent{}: {} stopped ({})",
+            "{}subagent{}: {} stopped ({}), records kept at {}",
             Color::YELLOW,
             Color::RESET,
             entry.id,
-            if outcome.forced { "forced" } else { "harvested" }
+            if outcome.forced { "forced" } else { "harvested" },
+            entry.agent_dir.display()
         );
 
         Ok(outcome)
